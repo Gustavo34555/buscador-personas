@@ -1,15 +1,15 @@
-# 🇵🇪 Buscador de Personas & Padrón Nacional
+# Buscador de Personas
 
-Plataforma de alto rendimiento para la consulta, búsqueda y análisis de información de identificación nacional (DNI/Reniec) y registros tributarios (RUC/SUNAT), diseñada con arquitectura asíncrona, indexación ponderada en memoria y diseño web ultra-premium.
+Plataforma de alto rendimiento para la consulta, búsqueda y verificación de personas y registros tributarios, diseñada con arquitectura asíncrona, indexación ponderada en memoria y diseño web ultra-premium.
 
 ---
 
 ## ⚡ Características Principales
 
 - **🚀 Motor de Búsqueda Sub-15ms**: Algoritmo ponderado en PostgreSQL con pesos A/B/C (`ap_pat > nombres > ap_mat`), trigramas GIN y soporte fonético (`fuzzystrmatch`).
-- **💳 Ficha Digital DNI 3D**: Visualización interactiva tipo tarjeta inteligente con código de seguridad MRZ, avatar de género y cronología de vigencia.
-- **👨‍👩‍👧 Árbol y Búsqueda Familiar**: Navegación en un clic hacia la ficha de los padres de cualquier persona.
-- **🏛️ Consulta SUNAT en Tiempo Real**: Módulo de scraping/API de RUC con estado tributario (Activo/Habido), condición y domicilio fiscal.
+- **💳 Ficha Digital 3D**: Visualización interactiva tipo tarjeta inteligente con código de seguridad MRZ, avatar de género y cronología de vigencia.
+- **👨‍👩‍👧 Árbol y Búsqueda Familiar**: Navegación en un clic hacia la ficha de los familiares de cualquier persona.
+- **🏛️ Consulta de RUC en Tiempo Real**: Módulo de consulta tributaria con estado en vivo (Activo/Habido), condición y domicilio fiscal.
 - **🔒 Seguridad & Resiliencia**: Tokens de sesión temporales HMAC, rate limiting en memoria, protección contra timing attacks y headers de seguridad HTTP.
 - **📊 Exportación de Datos**: Descarga de resultados en formatos estructurados **CSV** (Excel) y **JSON**, además de vista optimizada para impresión A4.
 - **📱 PWA & Offline Shell**: Aplicación web progresiva instalable en escritorio y dispositivos móviles con Service Worker y soporte para atajos de teclado (`Ctrl+K`, flechas `↑`/`↓`).
@@ -86,9 +86,9 @@ ruff check .
 
 | Método | Endpoint | Descripción |
 |---|---|---|
-| `GET` | `/persona/{dni}` | Consulta detallada de una persona por número de DNI (8 dígitos) |
+| `GET` | `/persona/{dni}` | Consulta detallada de una persona por número de documento (8 dígitos) |
 | `GET` | `/buscar?q={texto}&limit=20` | Búsqueda difusa ponderada por nombres o apellidos |
-| `GET` | `/scraping/ruc/{dni}` | Consulta del estado y datos de RUC ante SUNAT |
+| `GET` | `/scraping/ruc/{dni}` | Consulta del estado y datos de RUC tributario |
 | `GET` | `/api/frontend-token` | Emisión de token HMAC temporal para clientes autorizados |
 | `GET` | `/api/status` | Healthcheck activo con ping a PostgreSQL |
 
