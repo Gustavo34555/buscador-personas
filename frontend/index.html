@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="theme-color" content="#070709">
+  <meta name="description" content="Buscador de personas por DNI o nombre completo. Consulta el padrón nacional de identificación de Perú con información personal, familiar y de RUC SUNAT.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Buscador de Personas — RENIEC Padrón Nacional">
+  <meta property="og:description" content="Consulta el padrón de identificación por DNI o nombre completo con datos familiares y RUC.">
+  <meta property="og:type" content="website">
+  <title>Buscador de Personas — RENIEC</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+</head>
+<body class="grid-bg">
+
+  <!-- Background decorations -->
+  <div class="bg-blob bg-blob--1"></div>
+  <div class="bg-blob bg-blob--2"></div>
+  <div class="bg-blob bg-blob--3"></div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Quick Search Modal (Ctrl+K) -->
+  <div id="quick-search-modal" class="qs-overlay" role="dialog" aria-label="Búsqueda rápida">
+    <div class="qs-backdrop" data-close-modal></div>
+    <div class="qs-panel" id="qs-panel">
+      <div class="qs-header">
+        <span class="material-symbols-outlined">search</span>
+        <input id="quick-search-input" type="text" placeholder="DNI o nombre completo..." autocomplete="off" aria-label="Búsqueda rápida">
+        <kbd>ESC</kbd>
+      </div>
+      <div id="quick-search-results" class="qs-results">
+        <p class="qs-empty">Escribe al menos 3 caracteres para buscar...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Detail Sheet -->
+  <div id="mobile-sheet-overlay" class="sheet-overlay" data-close-sheet></div>
+  <div id="mobile-sheet" class="sheet">
+    <div class="sheet__handle"></div>
+    <div id="mobile-sheet-content"></div>
+  </div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header__inner">
+      <div class="header__brand">
+        <div class="logo-float">
+          <svg width="34" height="34" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <linearGradient id="lg1" x1="0" y1="0" x2="64" y2="64">
+                <stop offset="0%" stop-color="#818cf8"/>
+                <stop offset="100%" stop-color="#6366f1"/>
+              </linearGradient>
+              <linearGradient id="lg2" x1="0" y1="0" x2="64" y2="64">
+                <stop offset="0%" stop-color="#c084fc"/>
+                <stop offset="100%" stop-color="#9333ea"/>
+              </linearGradient>
+            </defs>
+            <rect width="64" height="64" rx="18" fill="url(#lg1)" opacity="0.18"/>
+            <rect x="1" y="1" width="62" height="62" rx="17" stroke="url(#lg1)" stroke-width="1.5" fill="none" opacity="0.4"/>
+            <circle cx="28" cy="22" r="9" stroke="url(#lg2)" stroke-width="2.5" fill="none"/>
+            <path d="M13 50c0-8.284 6.716-15 15-15s15 6.716 15 15" stroke="url(#lg2)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <circle cx="44" cy="42" r="8" stroke="#818cf8" stroke-width="2.5" fill="#070709"/>
+            <line x1="50" y1="48" x2="57" y2="55" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="header__text">
+          <span class="header__title">RENIEC Buscador</span>
+          <span class="header__subtitle">Padrón Nacional de Identificación</span>
+        </div>
+      </div>
+      <div class="header__actions">
+        <button id="btn-quick-search" class="btn-quick-search" title="Búsqueda rápida (Ctrl+K)">
+          <span class="material-symbols-outlined">bolt</span>
+          <span class="btn-quick-search__label">Búsqueda rápida</span>
+          <kbd>Ctrl+K</kbd>
+        </button>
+        <div id="connection-status" class="connection-status" role="status" aria-label="Estado de conexión">
+          <span class="status-dot status-dot--online"></span>
+          <span class="status-label">Online</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main">
+
+    <!-- Hero + Search -->
+    <section class="hero" aria-label="Búsqueda">
+      <div class="hero__content">
+        <div class="hero__badge-wrap">
+          <span class="material-symbols-outlined" style="font-size: 14px; color: var(--accent-light);">verified_user</span>
+          <span class="hero__badge-text">Padrón Electoral & Consultas SUNAT</span>
+        </div>
+        <h1><span class="gradient-text">Buscador Nacional de Personas</span></h1>
+        <p class="hero__desc">Consulta el padrón de identificación de Perú por DNI o apellidos y nombres en tiempo real.</p>
+        
+        <!-- Suggestions Chips -->
+        <div class="hero__chips">
+          <span class="chip" data-example="dni" title="Buscar DNI de ejemplo">
+            <span class="material-symbols-outlined">badge</span> DNI (8 dígitos)
+          </span>
+          <span class="chip" data-query="garcia perez" title="Buscar por apellidos">
+            <span class="material-symbols-outlined">person_search</span> "Garcia Perez"
+          </span>
+          <span class="chip" data-query="quispe" title="Buscar por apellido">
+            <span class="material-symbols-outlined">family_restroom</span> "Quispe"
+          </span>
+          <span class="chip" title="Consulta automática de RUC">
+            <span class="material-symbols-outlined">corporate_fare</span> RUC SUNAT
+          </span>
+        </div>
+      </div>
+
+      <!-- Search Box -->
+      <div class="search-wrapper" id="search-wrapper">
+        <div class="search-glow"></div>
+        <div class="search-box">
+          <span class="material-symbols-outlined search-box__icon">search</span>
+          <div class="search-box__input-wrap">
+            <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." autocomplete="off" class="search-box__input" aria-label="Buscar persona">
+            <button id="btn-clear-search" class="btn-clear-input" title="Borrar búsqueda" aria-label="Borrar texto">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+          <div class="search-box__actions" id="search-modes">
+            <div class="mode-selector">
+              <button id="mode-dni" class="mode-btn mode-btn--active" data-mode="dni">DNI</button>
+              <button id="mode-nombre" class="mode-btn" data-mode="nombre">Nombre</button>
+            </div>
+            <button id="btn-search" class="btn-search" title="Buscar" aria-label="Buscar">
+              <span class="material-symbols-outlined">arrow_forward</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Limit selector (nombre mode) -->
+      <div id="limit-row" class="limit-row">
+        <span>Mostrar</span>
+        <select id="limite" aria-label="Cantidad de resultados">
+          <option value="20" selected>20 resultados</option>
+          <option value="50">50 resultados</option>
+          <option value="100">100 resultados</option>
+        </select>
+        <span>con mayor relevancia</span>
+      </div>
+    </section>
+
+    <!-- Results Area -->
+    <section id="results-section" class="results-section" aria-label="Resultados">
+      <div class="results-header" id="results-header">
+        <div class="results-header__left">
+          <h2>Resultados Encontrados</h2>
+          <span id="badge-count" class="badge-count">0</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="btn-exportar" class="btn-outline hidden" title="Exportar resultados a formato CSV">
+            <span class="material-symbols-outlined">table_view</span>
+            <span>CSV</span>
+          </button>
+          <button id="btn-exportar-json" class="btn-outline hidden" title="Exportar resultados a formato JSON">
+            <span class="material-symbols-outlined">data_object</span>
+            <span>JSON</span>
+          </button>
+        </div>
+      </div>
+
+      <p id="estado-texto" class="status-text"></p>
+
+      <div class="results-grid">
+        <div class="results-list-col">
+          <div id="results-list" class="results-list"></div>
+        </div>
+
+        <!-- Detail Panel (Desktop) -->
+        <aside id="detail-panel" class="detail-panel" aria-label="Detalle de persona">
+          <div id="detail-empty" class="detail-empty">
+            <div class="detail-empty__icon">
+              <span class="material-symbols-outlined">fingerprint</span>
+            </div>
+            <h4>Ficha de Identificación</h4>
+            <p>Selecciona un resultado de la lista para ver el detalle personal, familiar y tributario</p>
+          </div>
+          <div id="detail-content" class="detail-content hidden"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="empty-state" style="text-align:center; padding: 48px 16px; opacity: 0.8;">
+      <div style="display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px; border-radius:20px; background:var(--accent-dim); border:1px solid rgba(99,102,241,0.25); margin-bottom:16px;">
+        <span class="material-symbols-outlined" style="font-size:32px; color:var(--accent-light);">manage_search</span>
+      </div>
+      <p style="font-size:16px; font-weight:600; color:var(--text-3);">Ingresa un documento o nombre completo</p>
+      <p style="font-size:13px; color:var(--text-5); margin-top:4px;">Navega los resultados con las flechas <kbd style="padding:2px 6px; border-radius:4px; border:1px solid var(--border); font-family:var(--mono);">↑</kbd> <kbd style="padding:2px 6px; border-radius:4px; border:1px solid var(--border); font-family:var(--mono);">↓</kbd> de tu teclado</p>
+    </div>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
