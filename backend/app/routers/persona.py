@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import unicodedata
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,6 +18,12 @@ router = APIRouter(tags=["personas"])
 
 dni_cache = TTLCache(maxsize=1000, ttl=DNI_CACHE_TTL)
 buscar_cache = TTLCache(maxsize=500, ttl=BUSCAR_CACHE_TTL)
+
+
+def _normalize_text(text: str) -> str:
+    """Remueve diacríticos y acentos para búsqueda insensible a tildes."""
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
 @router.get("/persona/{dni}", response_model=PersonaResponse)
@@ -73,18 +80,29 @@ async def buscar_personas(
     if cached is not None:
         return cached
 
-    q_lower = q.lower()
+    q_normalized = _normalize_text(q)
+    q_lower = q_normalized.lower()
     q_prefix = q_lower + "%"
+
+    words = q_lower.split()
+    w1 = words[0] if len(words) >= 1 else ""
+    w2 = words[1] if len(words) >= 2 else ""
+    w3 = words[2] if len(words) >= 3 else ""
+    w4 = words[3] if len(words) >= 4 else ""
 
     try:
         filas = await asyncio.to_thread(
             persona_service.buscar_personas,
-            q=q,
+            q=q_normalized,
             q_lower=q_lower,
             q_prefix=q_prefix,
-            dni_prefix=f"{q}%",
-            num_words=len(q_lower.split()),
+            dni_prefix=f"{q_lower}%",
+            num_words=len(words),
             limit=limit,
+            w1=w1,
+            w2=w2,
+            w3=w3,
+            w4=w4,
         )
     except SQLAlchemyError as e:
         logger.exception("Error al consultar la base de datos")

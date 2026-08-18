@@ -1,4 +1,3 @@
-
 from app.services import persona_service
 from tests.fakes import PERSONA_FILA, FakeEngine
 
@@ -49,6 +48,30 @@ def test_buscar_resultados(client, monkeypatch):
     fila["dig_ruc"] = "5"
     _mock_engine(monkeypatch, FakeEngine([fila]))
     res = client.get("/buscar", params={"q": "Juan Garcia"})
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+    assert body[0]["dni"] == "12345678"
+
+
+def test_buscar_normalizacion_tildes(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    fila["dig_ruc"] = "5"
+    _mock_engine(monkeypatch, FakeEngine([fila]))
+    # Con tilde debe procesarse sin errores y normalizarse
+    res = client.get("/buscar", params={"q": "García Pérez"})
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+    assert body[0]["dni"] == "12345678"
+
+
+def test_buscar_orden_tokens(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    fila["dig_ruc"] = "5"
+    _mock_engine(monkeypatch, FakeEngine([fila]))
+    # Orden natural: Paterno Materno Nombre
+    res = client.get("/buscar", params={"q": "Garcia Perez Juan"})
     assert res.status_code == 200
     body = res.json()
     assert len(body) == 1
