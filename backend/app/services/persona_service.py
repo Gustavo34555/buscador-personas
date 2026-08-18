@@ -1,13 +1,10 @@
+import re
 from sqlalchemy import bindparam, text
 
 from app.db import engine
 from app.sql.queries import (
-    BUCKET_SIZE,
-    BUSCAR_BUCKETS,
-    BUSCAR_DNI,
-    BUSCAR_FONETICO,
-    BUSCAR_MULTIWORD,
-    BUSCAR_TYPO,
+    CANDIDATOS_DNI,
+    CANDIDATOS_TSQUERY,
     MAX_CANDIDATOS,
     PERSONA_POR_DNI,
     RANK_PRECISO,
@@ -20,18 +17,8 @@ def obtener_por_dni(dni: str):
         return conn.execute(text(PERSONA_POR_DNI), {"dni": dni}).mappings().first()
 
 
-def _merge_candidatos(rows, dnis: dict) -> dict:
-    for fila in rows:
-        dnis.setdefault(fila["dni"], fila.get("pre_rank") or 0)
-    return dnis
-
-
-def _precisos(conn, params, dnis: dict, limit: int, cand_limit: int = MAX_CANDIDATOS):
-    top = sorted(dnis.items(), key=lambda kv: kv[1], reverse=True)[:cand_limit]
-    ids = [dni for dni, _ in top]
-    precise_params = {**params, "dni_list": ids}
-    stmt = text(RANK_PRECISO).bindparams(bindparam("dni_list", expanding=True))
-    return conn.execute(stmt, precise_params).mappings().all()
+def _sanitize_word(w: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]", "", w).strip()
 
 
 def buscar_personas(
@@ -46,10 +33,9 @@ def buscar_personas(
     w3: str = "",
     w4: str = "",
 ):
-    # Escalar límites de candidatos dinámicamente:
-    # 1 palabra requiere mayor amplitud de búsqueda en buckets
-    cand_limit = MAX_CANDIDATOS * 2 if num_words == 1 else MAX_CANDIDATOS
-    bucket_size = BUCKET_SIZE * 2 if num_words == 1 else BUCKET_SIZE
+    clean_words = [_sanitize_word(w) for w in q_lower.split() if _sanitize_word(w)]
+    if not clean_words and not q.isdigit():
+        return []
 
     params = {
         "q": q,
@@ -61,47 +47,92 @@ def buscar_personas(
         "w3": w3,
         "w4": w4,
         "limit": limit,
-        "num_words_int": num_words,
-        "cand_limit": cand_limit,
-        "bucket_size": bucket_size,
+        "num_words_int": len(clean_words),
+        "cand_limit": MAX_CANDIDATOS,
     }
+
     with engine.connect() as conn:
-        # SET LOCAL se revierte al finalizar la transacción del contexto
-        conn.execute(text("SET LOCAL pg_trgm.similarity_threshold = 0.25"))
-        conn.execute(text("SET LOCAL work_mem = '128MB'"))
+        conn.execute(text("SET LOCAL work_mem = '64MB'"))
 
-        dnis = {}
-        if num_words == 1:
-            for bucket in BUSCAR_BUCKETS:
-                _merge_candidatos(
-                    conn.execute(text(bucket), params).mappings().all(), dnis
-                )
-            _merge_candidatos(conn.execute(text(BUSCAR_DNI), params).mappings().all(), dnis)
-            if len(dnis) < cand_limit and w1:
-                _merge_candidatos(
-                    conn.execute(text(BUSCAR_FONETICO), params).mappings().all(), dnis
-                )
-        else:
-            _merge_candidatos(
-                conn.execute(text(BUSCAR_MULTIWORD), params).mappings().all(), dnis
-            )
+        dnis = []
 
-        # Fallback a trigramas si hay espacio en candidatos
-        if len(dnis) < cand_limit:
-            _merge_candidatos(
-                conn.execute(text(BUSCAR_TYPO), params).mappings().all(), dnis
-            )
+        # 1. Si la búsqueda contiene dígitos o es DNI directo
+        if any(c.isdigit() for c in q):
+            dni_rows = conn.execute(text(CANDIDATOS_DNI), params).mappings().all()
+            for r in dni_rows:
+                dni = r.get("dni")
+                if dni and dni not in dnis:
+                    dnis.append(dni)
 
-        # Fallback fonético adicional para multi-palabra si aún hay espacio
-        if num_words > 1 and len(dnis) < cand_limit and w1:
-            _merge_candidatos(
-                conn.execute(text(BUSCAR_FONETICO), params).mappings().all(), dnis
-            )
+        # 2. Búsqueda por tokens GIN
+        if len(clean_words) >= 1 and len(dnis) < MAX_CANDIDATOS:
+            if len(clean_words) == 1:
+                # Paso A: Palabra exacta
+                ts_exact = clean_words[0]
+                rows = conn.execute(
+                    text(CANDIDATOS_TSQUERY),
+                    {"tsq": ts_exact, "cand_limit": MAX_CANDIDATOS},
+                ).mappings().all()
+                for r in rows:
+                    dni = r.get("dni")
+                    if dni and dni not in dnis:
+                        dnis.append(dni)
+
+                # Paso B: Prefijo si faltan candidatos
+                if len(dnis) < MAX_CANDIDATOS:
+                    ts_pref = f"{clean_words[0]}:*"
+                    rows = conn.execute(
+                        text(CANDIDATOS_TSQUERY),
+                        {"tsq": ts_pref, "cand_limit": MAX_CANDIDATOS},
+                    ).mappings().all()
+                    for r in rows:
+                        dni = r.get("dni")
+                        if dni and dni not in dnis:
+                            dnis.append(dni)
+            else:
+                # Multi-palabra:
+                # Paso A: Todos los tokens exactos (AND) -> máxima precisión y velocidad
+                ts_and = " & ".join(clean_words)
+                rows = conn.execute(
+                    text(CANDIDATOS_TSQUERY),
+                    {"tsq": ts_and, "cand_limit": MAX_CANDIDATOS},
+                ).mappings().all()
+                for r in rows:
+                    dni = r.get("dni")
+                    if dni and dni not in dnis:
+                        dnis.append(dni)
+
+                # Paso B: Prefijo en el último token (al autocompletar)
+                if len(dnis) < limit:
+                    ts_last_pref = " & ".join(clean_words[:-1] + [f"{clean_words[-1]}:*"])
+                    rows = conn.execute(
+                        text(CANDIDATOS_TSQUERY),
+                        {"tsq": ts_last_pref, "cand_limit": MAX_CANDIDATOS},
+                    ).mappings().all()
+                    for r in rows:
+                        dni = r.get("dni")
+                        if dni and dni not in dnis:
+                            dnis.append(dni)
+
+                # Paso C: Fallback OR si aún no hay resultados (tolerancia a 1 término)
+                if not dnis:
+                    ts_or = " | ".join(clean_words)
+                    rows = conn.execute(
+                        text(CANDIDATOS_TSQUERY),
+                        {"tsq": ts_or, "cand_limit": MAX_CANDIDATOS},
+                    ).mappings().all()
+                    for r in rows:
+                        dni = r.get("dni")
+                        if dni and dni not in dnis:
+                            dnis.append(dni)
 
         if not dnis:
             return []
 
-        return _precisos(conn, params, dnis, limit, cand_limit=cand_limit)
+        # 3. Re-ranking de alta precisión sobre los candidatos seleccionados
+        precise_params = {**params, "dni_list": dnis[:MAX_CANDIDATOS]}
+        stmt = text(RANK_PRECISO).bindparams(bindparam("dni_list", expanding=True))
+        return conn.execute(stmt, precise_params).mappings().all()
 
 
 def obtener_ruc_de_persona(dni: str):

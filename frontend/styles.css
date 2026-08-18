@@ -249,45 +249,6 @@ img, svg { display: block; max-width: 100%; }
   .hero__desc { font-size: 16px; }
 }
 
-/* ── 7b. Stats Bar ───────────────────────────────────────────────────── */
-.stats-bar {
-  display: flex; align-items: center; justify-content: center;
-  gap: 6px; margin-top: 24px; flex-wrap: wrap;
-}
-.stat-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 16px; border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border);
-  transition: all 0.3s var(--ease);
-}
-.stat-item:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--border-hover);
-  transform: translateY(-1px);
-}
-.stat-item .material-symbols-outlined {
-  font-size: 18px; color: var(--accent-light);
-}
-.stat-item__value {
-  font-family: var(--mono); font-size: 16px; font-weight: 700;
-  color: var(--text);
-  min-width: 28px; text-align: right;
-}
-.stat-item__label {
-  font-size: 11px; color: var(--text-5); font-weight: 500;
-}
-.stat-divider {
-  width: 1px; height: 24px;
-  background: var(--border);
-  margin: 0 4px;
-}
-@media (max-width: 639px) {
-  .stat-divider { display: none; }
-  .stats-bar { gap: 8px; }
-  .stat-item { flex: 1; min-width: 120px; justify-content: center; }
-}
-
 /* ── 8. Search Box ───────────────────────────────────────────────────── */
 .search-wrapper {
   max-width: 720px; margin: 0 auto; position: relative;
@@ -1105,7 +1066,7 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   body { background: #fff !important; color: #000 !important; font-size: 12pt; }
   .header, .hero, .search-wrapper, .results-header, .results-list-col,
   .toast-container, .qs-overlay, .bg-blob, .detail-toolbar, .btn-ruc,
-  .stats-bar, .site-footer { display: none !important; }
+  .site-footer { display: none !important; }
   .main { padding: 0 !important; max-width: 100% !important; }
   .results-section { display: block !important; }
   .results-grid { display: block !important; }

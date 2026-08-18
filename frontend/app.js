@@ -58,9 +58,6 @@
   const mobileSheet       = $('mobile-sheet');
   const mobileSheetOverlay = $('mobile-sheet-overlay');
   const mobileSheetContent = $('mobile-sheet-content');
-  const statQueries    = $('stat-queries');
-  const statSpeed      = $('stat-speed');
-  const statFound      = $('stat-found');
 
   let resultados = [];
   let personaSeleccionada = null;
@@ -69,8 +66,6 @@
   let debounce = null;
   let qsTimer = null;
   let qsAbort = null;
-  let totalQueries = 0;
-  let totalFound = 0;
 
   /* ── Helpers ─────────────────────────────────────────────── */
   function nombre(p) {
@@ -696,14 +691,6 @@
       const oldCount = parseInt(badgeCount.textContent) || 0;
       animateValue(badgeCount, oldCount, data.length, 400);
       bumpBadge(badgeCount);
-
-      // Update stats
-      totalQueries++;
-      totalFound += data.length;
-      animateValue(statQueries, totalQueries - 1, totalQueries, 300);
-      animateValue(statFound, totalFound - data.length, totalFound, 500);
-      const elapsed = Math.round(performance.now() - searchStartTime);
-      statSpeed.textContent = elapsed;
 
       btnExportar.classList.remove('hidden');
       btnExportarJson.classList.remove('hidden');

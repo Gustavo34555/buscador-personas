@@ -43,136 +43,25 @@ PERSONA_POR_DNI = f"""
 NC_EXPR = "build_nombre_completo(nombres, ap_pat, ap_mat)"
 NC_BUSQUEDA_EXPR = "build_nombre_busqueda(ap_pat, ap_mat, nombres)"
 
-MAX_CANDIDATOS = 80   # tope base de candidatas para ranking ultra-rápido (<15ms)
-BUCKET_SIZE = 500     # filas base por bucket (early-exit del index scan)
+MAX_CANDIDATOS = 100   # Candidatos óptimos para ranking ultra-preciso en < 30ms
 
-PRE_RANK_EXPR = """
-    (
-        CASE WHEN {NC} = :q_lower OR {NC_BUSQ} = :q_lower THEN 10000
-             WHEN {NC} LIKE :q_prefix OR {NC_BUSQ} LIKE :q_prefix THEN 5000
-             ELSE 0
-        END
-        + CASE WHEN lower(p.ap_pat) = :q_lower THEN 3500 ELSE 0 END
-        + CASE WHEN lower(p.nombres) = :q_lower THEN 3000 ELSE 0 END
-        + CASE WHEN lower(p.ap_mat) = :q_lower THEN 2000 ELSE 0 END
-        + CASE WHEN lower(p.ap_pat) LIKE :q_prefix THEN 800 ELSE 0 END
-        + CASE WHEN lower(p.nombres) LIKE :q_prefix THEN 500 ELSE 0 END
-        + CASE WHEN :w1 != '' AND lower(p.ap_pat) = :w1 THEN 1200 ELSE 0 END
-        + CASE WHEN :w2 != '' AND lower(p.ap_mat) = :w2 THEN 1000 ELSE 0 END
-        + CASE WHEN :w3 != '' AND lower(p.nombres) LIKE :w3 || '%' THEN 800 ELSE 0 END
-        + CASE WHEN :w1 != '' AND lower(p.nombres) = :w1 THEN 900 ELSE 0 END
-        + CASE WHEN :w2 != '' AND lower(p.ap_pat) = :w2 THEN 700 ELSE 0 END
-        + GREATEST(
-            COALESCE(similarity({NC}, :q_lower), 0),
-            COALESCE(similarity({NC_BUSQ}, :q_lower), 0)
-        ) * 300
-    ) AS pre_rank
-"""
-
-
-def _bucket_sql(col: str) -> str:
-    """Bucket por componente (1 palabra): prefix match con early-exit.
-
-    Requiere indice btree sobre lower(col) con text_pattern_ops.
-    Devuelve filas ordenadas por dni (no por ranking); el merge y el sort
-    se hacen en Python con BUCKET_SIZE filas por bucket.
-    """
-    return f"""
-        SELECT
-            p.dni, {NC_EXPR} AS nc,
-            {PRE_RANK_EXPR.format(NC=NC_EXPR, NC_BUSQ=NC_BUSQUEDA_EXPR)}
-        FROM personas p
-        WHERE lower({col}) LIKE :q_prefix
-        ORDER BY p.dni
-        LIMIT :bucket_size
-    """
-
-
-BUSCAR_BUCKET_AP_PAT = _bucket_sql("ap_pat")
-BUSCAR_BUCKET_AP_MAT = _bucket_sql("ap_mat")
-BUSCAR_BUCKET_NOMBRES = _bucket_sql("nombres")
-
-BUSCAR_BUCKETS = [
-    BUSCAR_BUCKET_AP_PAT,
-    BUSCAR_BUCKET_AP_MAT,
-    BUSCAR_BUCKET_NOMBRES,
-]
-
-BUSCAR_DNI = f"""
-    SELECT
-        p.dni, {NC_EXPR} AS nc,
-        {PRE_RANK_EXPR.format(NC=NC_EXPR, NC_BUSQ=NC_BUSQUEDA_EXPR)}
+# Selección ultrarrápida por índice GIN (search_vector)
+CANDIDATOS_TSQUERY = """
+    SELECT p.dni
     FROM personas p
-    WHERE p.dni = :q
-    ORDER BY p.dni
-    LIMIT 1
+    WHERE p.search_vector @@ to_tsquery('simple', :tsq)
+    LIMIT :cand_limit
 """
 
-BUSCAR_FONETICO = f"""
-    SELECT
-        p.dni, {NC_EXPR} AS nc,
-        {PRE_RANK_EXPR.format(NC=NC_EXPR, NC_BUSQ=NC_BUSQUEDA_EXPR)}
+# Selección directa de DNI exacto o prefijo
+CANDIDATOS_DNI = """
+    SELECT p.dni
     FROM personas p
-    WHERE soundex(immutable_unaccent(p.ap_pat)) = soundex(:w1)
-       OR soundex(immutable_unaccent(p.nombres)) = soundex(:w1)
-    ORDER BY p.dni
-    LIMIT :bucket_size
+    WHERE p.dni = :q OR p.dni LIKE :dni_prefix
+    LIMIT :cand_limit
 """
 
-
-def _candidatos_sql(where_branch: str, with_tsqs: bool) -> str:
-    """Pasada de candidatos ordenada por pre_rank: devuelve top :cand_limit."""
-    tsqs = """
-        tsqs AS (
-            SELECT
-                websearch_to_tsquery('simple', immutable_unaccent(:q)) AS ws_q,
-                phraseto_tsquery('simple', immutable_unaccent(:q)) AS phr_q
-        ),
-    """
-    return f"""
-        WITH {tsqs if with_tsqs else ""}
-        base AS (
-            SELECT
-                p.dni, {NC_EXPR} AS nc,
-                {PRE_RANK_EXPR.format(NC=NC_EXPR, NC_BUSQ=NC_BUSQUEDA_EXPR)}
-            FROM personas p{", tsqs t" if with_tsqs else ""}
-            WHERE {where_branch}
-            ORDER BY pre_rank DESC, p.dni
-            LIMIT :cand_limit
-        )
-        SELECT b.dni, b.pre_rank
-        FROM base b
-    """
-
-
-# Multi-palabra: coincidencia estricta AND de palabras (GIN de search_vector)
-BUSCAR_MULTIWORD = _candidatos_sql(
-    """
-    p.dni = :q
-    OR p.dni LIKE :dni_prefix
-    OR p.search_vector @@ t.ws_q
-    """,
-    with_tsqs=True,
-)
-
-# Fallback: tolerancia a typos via trigramas (en ambos órdenes de nombre)
-BUSCAR_TYPO = _candidatos_sql(
-    f"""
-    p.dni = :q
-    OR p.dni LIKE :dni_prefix
-    OR (
-        {NC_EXPR} % :q_lower
-        AND similarity({NC_EXPR}, :q_lower) >= 0.25
-    )
-    OR (
-        {NC_BUSQUEDA_EXPR} % :q_lower
-        AND similarity({NC_BUSQUEDA_EXPR}, :q_lower) >= 0.25
-    )
-    """,
-    with_tsqs=False,
-)
-
-
+# Re-ranking de máxima precisión sobre el conjunto de candidatos
 RANK_PRECISO = f"""
     WITH tsqs AS (
         SELECT
@@ -180,7 +69,9 @@ RANK_PRECISO = f"""
             phraseto_tsquery('simple', immutable_unaccent(:q)) AS phr_q
     ),
     det AS (
-        SELECT p.*, {NC_EXPR} AS nc, {NC_BUSQUEDA_EXPR} AS nc_busq
+        SELECT p.*,
+            {NC_EXPR} AS nc,
+            {NC_BUSQUEDA_EXPR} AS nc_busq
         FROM personas p
         WHERE p.dni IN :dni_list
     )
@@ -193,32 +84,43 @@ RANK_PRECISO = f"""
         det.fch_emision, det.fch_inscripcion, det.fch_caducidad,
         det.dig_ruc,
         {EDAD_COLS},
-        -- Ranking ponderado ultra-preciso (A=Paterno 1.0, B=Nombres 0.4, C=Materno 0.2)
+        -- Algoritmo de ponderación jerárquica para máxima precisión
         (
+            -- Coincidencia exacta de nombre completo (en ambos órdenes peruanos)
             CASE WHEN det.nc = :q_lower OR det.nc_busq = :q_lower THEN 10000
                  WHEN det.nc LIKE :q_prefix OR det.nc_busq LIKE :q_prefix THEN 5000
                  ELSE 0
             END
-            + CASE WHEN lower(det.ap_pat) = :q_lower THEN 3500 ELSE 0 END
-            + CASE WHEN lower(det.nombres) = :q_lower THEN 3000 ELSE 0 END
-            + CASE WHEN lower(det.ap_mat) = :q_lower THEN 2000 ELSE 0 END
-            + CASE WHEN lower(det.ap_pat) LIKE :q_prefix THEN 800 ELSE 0 END
-            + CASE WHEN lower(det.nombres) LIKE :q_prefix THEN 500 ELSE 0 END
-            -- Coincidencia token por token cruzada (Paterno Materno Nombres y Nombres Paterno Materno)
-            + CASE WHEN :w1 != '' AND lower(det.ap_pat) = :w1 THEN 3000 ELSE 0 END
-            + CASE WHEN :w2 != '' AND lower(det.ap_mat) = :w2 THEN 2500 ELSE 0 END
-            + CASE WHEN :w3 != '' AND lower(det.nombres) LIKE :w3 || '%' THEN 2000 ELSE 0 END
-            + CASE WHEN :w1 != '' AND lower(det.nombres) = :w1 THEN 2000 ELSE 0 END
+            -- Coincidencia exacta por componente
+            + CASE WHEN lower(det.ap_pat) = :q_lower THEN 4500 ELSE 0 END
+            + CASE WHEN lower(det.nombres) = :q_lower THEN 4000 ELSE 0 END
+            + CASE WHEN lower(det.ap_mat) = :q_lower THEN 3000 ELSE 0 END
+            + CASE WHEN lower(det.ap_pat) LIKE :q_prefix THEN 1000 ELSE 0 END
+            + CASE WHEN lower(det.nombres) LIKE :q_prefix THEN 800 ELSE 0 END
+            -- Alineación estructural de apellidos y nombres (Paterno + Materno / Nombres + Paterno)
+            + CASE WHEN :w1 != '' AND lower(det.ap_pat) = :w1 AND :w2 != '' AND lower(det.ap_mat) = :w2 THEN 6000 ELSE 0 END
+            + CASE WHEN :w1 != '' AND lower(det.nombres) LIKE :w1 || '%' AND :w2 != '' AND lower(det.ap_pat) = :w2 THEN 5500 ELSE 0 END
+            + CASE WHEN :w1 != '' AND lower(det.ap_pat) = :w1 AND :w2 != '' AND lower(det.nombres) LIKE :w2 || '%' THEN 5500 ELSE 0 END
+            + CASE WHEN :w1 != '' AND lower(det.ap_pat) = :w1 AND :w2 != '' AND lower(det.ap_mat) = :w2 AND :w3 != '' AND lower(det.nombres) LIKE :w3 || '%' THEN 7500 ELSE 0 END
+            + CASE WHEN :w1 != '' AND lower(det.nombres) LIKE :w1 || '%' AND :w2 != '' AND lower(det.ap_pat) = :w2 AND :w3 != '' AND lower(det.ap_mat) = :w3 THEN 7500 ELSE 0 END
+            -- Puntos individuales por coincidencia de tokens
+            + CASE WHEN :w1 != '' AND lower(det.ap_pat) = :w1 THEN 2500 ELSE 0 END
+            + CASE WHEN :w1 != '' AND lower(det.nombres) LIKE :w1 || '%' THEN 2000 ELSE 0 END
+            + CASE WHEN :w2 != '' AND lower(det.ap_mat) = :w2 THEN 2000 ELSE 0 END
             + CASE WHEN :w2 != '' AND lower(det.ap_pat) = :w2 THEN 1800 ELSE 0 END
+            + CASE WHEN :w2 != '' AND lower(det.nombres) LIKE :w2 || '%' THEN 1500 ELSE 0 END
             + CASE WHEN :w3 != '' AND lower(det.ap_mat) = :w3 THEN 1500 ELSE 0 END
+            + CASE WHEN :w3 != '' AND lower(det.nombres) LIKE :w3 || '%' THEN 1200 ELSE 0 END
+            -- Ranking de frase exacta y cobertura textual
             + CASE WHEN :num_words_int >= 2 THEN
                 ts_rank('{{0.1, 0.2, 0.4, 1.0}}', det.search_vector, t.phr_q) * 5000
               ELSE 0 END
-            + ts_rank_cd('{{0.1, 0.2, 0.4, 1.0}}', det.search_vector, t.ws_q) * 500
+            + ts_rank_cd('{{0.1, 0.2, 0.4, 1.0}}', det.search_vector, t.ws_q) * 600
+            -- Similitud trigramétrica sobre el subconjunto de candidatos
             + GREATEST(
                 COALESCE(similarity(det.nc, :q_lower), 0),
                 COALESCE(similarity(det.nc_busq, :q_lower), 0)
-              ) * 350
+              ) * 400
         ) AS rank_score
     FROM det, tsqs t
     ORDER BY rank_score DESC, det.dni
