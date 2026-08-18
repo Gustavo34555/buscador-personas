@@ -58,6 +58,9 @@
   const mobileSheet       = $('mobile-sheet');
   const mobileSheetOverlay = $('mobile-sheet-overlay');
   const mobileSheetContent = $('mobile-sheet-content');
+  const statQueries    = $('stat-queries');
+  const statSpeed      = $('stat-speed');
+  const statFound      = $('stat-found');
 
   let resultados = [];
   let personaSeleccionada = null;
@@ -66,6 +69,8 @@
   let debounce = null;
   let qsTimer = null;
   let qsAbort = null;
+  let totalQueries = 0;
+  let totalFound = 0;
 
   /* ── Helpers ─────────────────────────────────────────────── */
   function nombre(p) {
@@ -88,6 +93,60 @@
   function rucDisplay(p) {
     if (!p.dni) return '-';
     return `10${p.dni}${p.dig_ruc || ''}`;
+  }
+
+  /* ── Animated Counter ─────────────────────────────────────── */
+  function animateValue(el, start, end, duration) {
+    if (start === end) { el.textContent = end; return; }
+    const range = end - start;
+    const startTime = performance.now();
+    function step(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.floor(start + range * eased);
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function bumpBadge(el) {
+    el.classList.remove('bump');
+    void el.offsetWidth;
+    el.classList.add('bump');
+  }
+
+  /* ── Ripple Effect ──────────────────────────────────────── */
+  function addRipple(e, target) {
+    const btn = target || e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple-effect';
+    const size = Math.max(rect.width, rect.height);
+    ripple.style.width = ripple.style.height = size + 'px';
+    ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+    ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+    btn.appendChild(ripple);
+    ripple.addEventListener('animationend', () => ripple.remove());
+  }
+
+  /* ── Parallax Blobs ────────────────────────────────────── */
+  function initParallax() {
+    const blobs = document.querySelectorAll('.bg-blob');
+    if (!blobs.length) return;
+    let ticking = false;
+    document.addEventListener('mousemove', (e) => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const cx = (e.clientX / window.innerWidth - 0.5) * 2;
+        const cy = (e.clientY / window.innerHeight - 0.5) * 2;
+        blobs[0].style.transform = `translate(${cx * 15}px, ${cy * 10}px)`;
+        if (blobs[1]) blobs[1].style.transform = `translate(${cx * -10}px, ${cy * 12}px)`;
+        if (blobs[2]) blobs[2].style.transform = `translate(${cx * 8}px, ${cy * -8}px)`;
+        ticking = false;
+      });
+    });
   }
 
   /* ── Toast ───────────────────────────────────────────────── */
@@ -520,10 +579,19 @@
     });
 
     const html = buildDetailHTML(p);
-    detailContent.innerHTML = html;
-    detailEmpty.classList.add('hidden');
-    detailContent.classList.remove('hidden');
-    bindDetailEvents(detailContent, p);
+
+    // Smooth transition on detail panel
+    detailContent.style.opacity = '0';
+    detailContent.style.transform = 'translateX(12px)';
+    setTimeout(() => {
+      detailContent.innerHTML = html;
+      detailEmpty.classList.add('hidden');
+      detailContent.classList.remove('hidden');
+      detailContent.style.transition = 'opacity 0.35s cubic-bezier(0.22,1,0.36,1), transform 0.35s cubic-bezier(0.22,1,0.36,1)';
+      detailContent.style.opacity = '1';
+      detailContent.style.transform = 'translateX(0)';
+      bindDetailEvents(detailContent, p);
+    }, 80);
 
     if (window.innerWidth < 769) {
       openMobileSheet(html, p);
@@ -589,6 +657,7 @@
     if (abortCtrl) abortCtrl.abort();
     abortCtrl = new AbortController();
     const isNombre = searchMode === 'nombre';
+    const searchStartTime = performance.now();
     if (!isNombre) { setLoading(true); skeleton(); }
     emptyState.classList.add('hidden');
     resultsSection.classList.add('visible');
@@ -622,7 +691,20 @@
       resultados = data;
       renderResults(data);
       setEstado(`${data.length} persona${data.length !== 1 ? 's' : ''} encontrada${data.length !== 1 ? 's' : ''}`, 'ok');
-      badgeCount.textContent = data.length;
+
+      // Animated badge count
+      const oldCount = parseInt(badgeCount.textContent) || 0;
+      animateValue(badgeCount, oldCount, data.length, 400);
+      bumpBadge(badgeCount);
+
+      // Update stats
+      totalQueries++;
+      totalFound += data.length;
+      animateValue(statQueries, totalQueries - 1, totalQueries, 300);
+      animateValue(statFound, totalFound - data.length, totalFound, 500);
+      const elapsed = Math.round(performance.now() - searchStartTime);
+      statSpeed.textContent = elapsed;
+
       btnExportar.classList.remove('hidden');
       btnExportarJson.classList.remove('hidden');
       if (data.length > 0) showDetail(data[0], 0);
@@ -861,6 +943,15 @@
   }
 
   /* ── Init ────────────────────────────────────────────────── */
+  // Init parallax
+  initParallax();
+
+  // Ripple on interactive buttons
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-action, .btn-outline, .btn-ruc, .chip');
+    if (btn) addRipple(e, btn);
+  });
+
   fetchSessionToken().then(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const initialQ = urlParams.get('q');

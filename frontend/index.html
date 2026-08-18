@@ -100,7 +100,7 @@
       <div class="hero__content">
         <div class="hero__badge-wrap">
           <span class="material-symbols-outlined" style="font-size: 14px; color: var(--accent-light);">verified_user</span>
-          <span class="hero__badge-text">Consulta y Verificación en Tiempo Real</span>
+          <span class="hero__badge-text">Consulta y Verificación de Identidad</span>
         </div>
         <h1><span class="gradient-text">Buscador de Personas</span></h1>
         <p class="hero__desc">Consulta rápida por número de documento o nombres y apellidos completos.</p>
@@ -119,6 +119,27 @@
           <span class="chip" title="Consulta automática de RUC">
             <span class="material-symbols-outlined">corporate_fare</span> RUC SUNAT
           </span>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="stats-bar">
+          <div class="stat-item">
+            <span class="material-symbols-outlined">query_stats</span>
+            <span class="stat-item__value" id="stat-queries">0</span>
+            <span class="stat-item__label">Consultas</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="material-symbols-outlined">speed</span>
+            <span class="stat-item__value" id="stat-speed">—</span>
+            <span class="stat-item__label">ms respuesta</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="material-symbols-outlined">groups</span>
+            <span class="stat-item__value" id="stat-found">0</span>
+            <span class="stat-item__label">Encontrados</span>
+          </div>
         </div>
       </div>
 
@@ -198,15 +219,43 @@
     </section>
 
     <!-- Empty State -->
-    <div id="empty-state" class="empty-state" style="text-align:center; padding: 48px 16px; opacity: 0.8;">
-      <div style="display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px; border-radius:20px; background:var(--accent-dim); border:1px solid rgba(99,102,241,0.25); margin-bottom:16px;">
-        <span class="material-symbols-outlined" style="font-size:32px; color:var(--accent-light);">manage_search</span>
+    <div id="empty-state" class="empty-state">
+      <div class="empty-state__icon-wrap">
+        <span class="material-symbols-outlined">manage_search</span>
       </div>
-      <p style="font-size:16px; font-weight:600; color:var(--text-3);">Ingresa un documento o nombre completo</p>
-      <p style="font-size:13px; color:var(--text-5); margin-top:4px;">Navega los resultados con las flechas <kbd style="padding:2px 6px; border-radius:4px; border:1px solid var(--border); font-family:var(--mono);">↑</kbd> <kbd style="padding:2px 6px; border-radius:4px; border:1px solid var(--border); font-family:var(--mono);">↓</kbd> de tu teclado</p>
+      <p class="empty-state__title">Ingresa un documento o nombre completo</p>
+      <p class="empty-state__desc">Busca por DNI de 8 dígitos o nombres y apellidos para consultar el padrón</p>
+      <div class="empty-state__kbd-row">
+        <span>Navega con</span>
+        <kbd>↑</kbd>
+        <kbd>↓</kbd>
+        <span>o usa</span>
+        <kbd>⌘K</kbd>
+      </div>
     </div>
 
   </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="footer-divider"></div>
+    <div class="footer-content">
+      <div class="footer-left">
+        <span class="material-symbols-outlined">terminal</span>
+        <span>Buscador de Personas — Sistema de Consulta e Identificación</span>
+      </div>
+      <div class="footer-right">
+        <a href="https://github.com/Gustavo34555/buscador-personas" target="_blank" rel="noopener" class="footer-link">
+          <span class="material-symbols-outlined">code</span>
+          <span>GitHub</span>
+        </a>
+        <a href="https://github.com/Gustavo34555" target="_blank" rel="noopener" class="footer-link">
+          <span class="material-symbols-outlined">person</span>
+          <span>Gustavo34555</span>
+        </a>
+      </div>
+    </div>
+  </footer>
 
   <script src="app.js"></script>
 </body>
