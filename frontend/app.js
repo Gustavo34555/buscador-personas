@@ -59,7 +59,15 @@
   const mobileSheetOverlay = $('mobile-sheet-overlay');
   const mobileSheetContent = $('mobile-sheet-content');
   const treeModal          = $('tree-modal');
+  const treeViewport       = $('tree-viewport');
+  const treeCanvas         = $('tree-canvas');
   const treeContainer      = $('tree-container');
+  const treeTitularBadge   = $('tree-titular-badge');
+  const treeStatsBar       = $('tree-stats-bar');
+  const treeZoomLabel      = $('tree-zoom-label');
+  const btnTreeZoomIn      = $('btn-tree-zoom-in');
+  const btnTreeZoomOut     = $('btn-tree-zoom-out');
+  const btnTreeReset       = $('btn-tree-reset');
   const c4Modal            = $('c4-modal');
   const c4Container        = $('c4-container');
   const btnCloseC4         = $('btn-close-c4');
@@ -72,6 +80,16 @@
   let debounce = null;
   let qsTimer = null;
   let qsAbort = null;
+
+  // Tree graph interactive pan & zoom state
+  let treeZoom = 1.0;
+  let treePanX = 0;
+  let treePanY = 0;
+  let isDraggingTree = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let initialPinchDist = null;
+  let initialPinchZoom = 1.0;
 
   /* ── Helpers ─────────────────────────────────────────────── */
   function nombre(p) {
@@ -582,21 +600,121 @@
     }
   }
 
-  /* ── Family Tree Modal ──────────────────────────────────────── */
+  /* ═══════════════════════════════════════════════════════════════════
+     ÁRBOL GENEALÓGICO INTERACTIVO — Interactive Graph & Pan/Zoom Canvas
+     ═══════════════════════════════════════════════════════════════════ */
+  function applyTreeTransform() {
+    if (!treeCanvas) return;
+    treeCanvas.style.transform = `translate(${treePanX}px, ${treePanY}px) scale(${treeZoom})`;
+    if (treeZoomLabel) {
+      treeZoomLabel.textContent = `${Math.round(treeZoom * 100)}%`;
+    }
+  }
+
+  function resetTreeTransform() {
+    treeZoom = 1.0;
+    treePanX = 0;
+    treePanY = 0;
+    applyTreeTransform();
+  }
+
+  function setTreeZoom(delta) {
+    treeZoom = Math.min(2.2, Math.max(0.4, treeZoom + delta));
+    applyTreeTransform();
+  }
+
+  // Pan & Zoom controls
+  if (btnTreeZoomIn) btnTreeZoomIn.addEventListener('click', () => setTreeZoom(0.15));
+  if (btnTreeZoomOut) btnTreeZoomOut.addEventListener('click', () => setTreeZoom(-0.15));
+  if (btnTreeReset) btnTreeReset.addEventListener('click', resetTreeTransform);
+
+  // Mouse Drag to Pan
+  if (treeViewport) {
+    treeViewport.addEventListener('mousedown', (e) => {
+      // Don't drag if clicking an action button
+      if (e.target.closest('.btn-node-mini, button, a')) return;
+      isDraggingTree = true;
+      dragStartX = e.clientX - treePanX;
+      dragStartY = e.clientY - treePanY;
+      treeViewport.classList.add('is-dragging');
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingTree) return;
+      treePanX = e.clientX - dragStartX;
+      treePanY = e.clientY - dragStartY;
+      applyTreeTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDraggingTree) {
+        isDraggingTree = false;
+        if (treeViewport) treeViewport.classList.remove('is-dragging');
+      }
+    });
+
+    // Mouse Wheel to Zoom
+    treeViewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.08 : -0.08;
+      setTreeZoom(delta);
+    }, { passive: false });
+
+    // Touch Support (Pinch to Zoom & Drag)
+    treeViewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isDraggingTree = true;
+        dragStartX = e.touches[0].clientX - treePanX;
+        dragStartY = e.touches[0].clientY - treePanY;
+      } else if (e.touches.length === 2) {
+        isDraggingTree = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        initialPinchDist = Math.hypot(dx, dy);
+        initialPinchZoom = treeZoom;
+      }
+    }, { passive: true });
+
+    treeViewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && isDraggingTree) {
+        treePanX = e.touches[0].clientX - dragStartX;
+        treePanY = e.touches[0].clientY - dragStartY;
+        applyTreeTransform();
+      } else if (e.touches.length === 2 && initialPinchDist) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const currentDist = Math.hypot(dx, dy);
+        const factor = currentDist / initialPinchDist;
+        treeZoom = Math.min(2.2, Math.max(0.4, initialPinchZoom * factor));
+        applyTreeTransform();
+      }
+    }, { passive: true });
+
+    treeViewport.addEventListener('touchend', () => {
+      isDraggingTree = false;
+      initialPinchDist = null;
+    });
+  }
+
   function openTreeModal(dni) {
+    if (!treeModal) return;
     treeModal.classList.add('open');
     document.body.style.overflow = 'hidden';
-    treeContainer.innerHTML = '<div class="tree-loading"><div class="qs-spinner"></div><p>Construyendo árbol genealógico...</p></div>';
+    resetTreeTransform();
+    treeContainer.innerHTML = '<div class="tree-loading"><div class="qs-spinner"></div><p>Construyendo red genealógica interactiva...</p></div>';
+    if (treeTitularBadge) treeTitularBadge.textContent = `DNI ${dni}`;
+    if (treeStatsBar) treeStatsBar.innerHTML = '';
     fetchArbol(dni);
   }
 
   function closeTreeModal() {
+    if (!treeModal) return;
     treeModal.classList.remove('open');
     document.body.style.overflow = '';
   }
 
   document.querySelectorAll('[data-close-tree]').forEach(el => el.addEventListener('click', closeTreeModal));
-  $('btn-close-tree').addEventListener('click', closeTreeModal);
+  if ($('btn-close-tree')) $('btn-close-tree').addEventListener('click', closeTreeModal);
 
   async function fetchArbol(dni) {
     try {
@@ -628,20 +746,41 @@
     const mainClass = opts.isMain ? 'tree-node--main' : '';
     const ghostClass = !nodo.encontrado ? 'tree-node--ghost' : '';
     const smClass = opts.small ? 'tree-node--sm' : '';
-    const clickAttr = nodo.encontrado && nodo.dni ? `data-tree-dni="${escHtml(nodo.dni)}"` : '';
     const icon = g === 'F' ? 'woman' : 'person';
-    const relation = opts.relation ? `<p class="tree-node__relation">${escHtml(opts.relation)}</p>` : '';
+    const relation = opts.relation ? `<div class="tree-node__relation">${escHtml(opts.relation)}</div>` : '';
     const meta = nodo.dni ? `DNI ${escHtml(nodo.dni)}` : (nodo.encontrado ? '' : 'No encontrado');
     const age = nodo.edad_anios ? ` · ${nodo.edad_anios}a` : '';
-    const ubigeo = nodo.ubigeo_dir && !opts.small ? `<p class="tree-node__ubigeo"><span class="material-symbols-outlined" style="font-size:10px">location_on</span>${escHtml(nodo.ubigeo_dir)}</p>` : '';
+    const ubigeo = nodo.ubigeo_dir && !opts.small ? `<div class="tree-node__ubigeo"><span class="material-symbols-outlined" style="font-size:10px">location_on</span>${escHtml(nodo.ubigeo_dir)}</div>` : '';
 
-    return `<div class="tree-node ${gClass} ${mainClass} ${ghostClass} ${smClass}" ${clickAttr} title="${escHtml(n)}">
-      ${relation}
-      <span class="material-symbols-outlined tree-node__icon">${icon}</span>
-      <p class="tree-node__name">${escHtml(n)}</p>
-      <p class="tree-node__meta">${meta}${age}</p>
-      ${ubigeo}
-    </div>`;
+    // Action buttons inside node
+    const actionsHtml = nodo.dni && nodo.encontrado ? `
+      <div class="tree-node__actions">
+        <button class="btn-node-mini" data-tree-action="explore" data-dni="${escHtml(nodo.dni)}" title="Explorar árbol de ${escHtml(n)}">
+          <span class="material-symbols-outlined" style="font-size:11px">account_tree</span>
+          <span>Árbol</span>
+        </button>
+        <button class="btn-node-mini" data-tree-action="detail" data-dni="${escHtml(nodo.dni)}" title="Ver Ficha Completa">
+          <span class="material-symbols-outlined" style="font-size:11px">visibility</span>
+          <span>Ficha</span>
+        </button>
+        <button class="btn-node-mini" data-tree-action="c4" data-dni="${escHtml(nodo.dni)}" title="Generar C4">
+          <span class="material-symbols-outlined" style="font-size:11px">print</span>
+          <span>C4</span>
+        </button>
+      </div>` : '';
+
+    return `
+      <div class="tree-node ${gClass} ${mainClass} ${ghostClass} ${smClass}" data-dni="${escHtml(nodo.dni || '')}" title="${escHtml(n)}">
+        ${relation}
+        <div class="tree-node__avatar">
+          <span class="material-symbols-outlined" style="font-size:20px">${icon}</span>
+        </div>
+        <div class="tree-node__name">${escHtml(n)}</div>
+        <div class="tree-node__meta">${meta}${age}</div>
+        ${ubigeo}
+        ${actionsHtml}
+      </div>
+    `;
   }
 
   function renderArbol(data) {
@@ -653,6 +792,33 @@
         <p class="tree-empty__desc">No se encontró información familiar para esta persona</p>
       </div>`;
       return;
+    }
+
+    // 1. Titular badge
+    const titularNombre = [p.nombres, p.ap_pat, p.ap_mat].filter(Boolean).join(' ').trim();
+    if (treeTitularBadge) {
+      treeTitularBadge.textContent = `${titularNombre} · DNI ${p.dni || '-'}`;
+    }
+
+    // 2. Stats bar chips calculation
+    if (treeStatsBar) {
+      const gpCount = [data.abuelo_paterno, data.abuela_paterna, data.abuelo_materno, data.abuela_materna].filter(x => x && x.encontrado).length;
+      const parentsCount = [data.padre, data.madre].filter(x => x && x.encontrado).length;
+      const sibCount = (data.hermanos || []).length;
+      const childrenCount = (data.hijos || []).length;
+
+      let statsHtml = `
+        <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#a855f7">person</span><strong>1</strong> Titular</span>
+        <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#6366f1">family_restroom</span><strong>${parentsCount}</strong> Padres</span>
+        <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#eab308">elderly</span><strong>${gpCount}</strong> Abuelos</span>
+      `;
+      if (sibCount > 0) {
+        statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#10b981">group</span><strong>${sibCount}</strong> Hermanos</span>`;
+      }
+      if (childrenCount > 0) {
+        statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#0284c7">child_care</span><strong>${childrenCount}</strong> Hijos</span>`;
+      }
+      treeStatsBar.innerHTML = statsHtml;
     }
 
     let html = '<div class="tree">';
@@ -667,8 +833,8 @@
         html += '<div class="tree-gp-couple">';
         html += '<p class="tree-gp-label">Línea Paterna</p>';
         html += '<div class="tree-gp-pair">';
-        if (data.abuelo_paterno) html += treeNodeHtml(data.abuelo_paterno, { small: true, relation: 'Abuelo' });
-        if (data.abuela_paterna) html += treeNodeHtml(data.abuela_paterna, { small: true, relation: 'Abuela' });
+        if (data.abuelo_paterno) html += treeNodeHtml(data.abuelo_paterno, { small: true, relation: 'Abuelo Pat.' });
+        if (data.abuela_paterna) html += treeNodeHtml(data.abuela_paterna, { small: true, relation: 'Abuela Pat.' });
         html += '</div>';
         html += '<div class="tree-gp-connector"></div>';
         html += '</div>';
@@ -677,8 +843,8 @@
         html += '<div class="tree-gp-couple">';
         html += '<p class="tree-gp-label">Línea Materna</p>';
         html += '<div class="tree-gp-pair">';
-        if (data.abuelo_materno) html += treeNodeHtml(data.abuelo_materno, { small: true, relation: 'Abuelo' });
-        if (data.abuela_materna) html += treeNodeHtml(data.abuela_materna, { small: true, relation: 'Abuela' });
+        if (data.abuelo_materno) html += treeNodeHtml(data.abuelo_materno, { small: true, relation: 'Abuelo Mat.' });
+        if (data.abuela_materna) html += treeNodeHtml(data.abuela_materna, { small: true, relation: 'Abuela Mat.' });
         html += '</div>';
         html += '<div class="tree-gp-connector"></div>';
         html += '</div>';
@@ -703,12 +869,12 @@
     html += '<div class="tree-level"><div class="tree-siblings-row">';
     hermanos.forEach((h, i) => {
       if (i === Math.floor(hermanos.length / 2)) {
-        html += treeNodeHtml(p, { isMain: true });
+        html += treeNodeHtml(p, { isMain: true, relation: 'Titular' });
       }
       html += treeNodeHtml(h, { relation: 'Hermano/a' });
     });
     if (hermanos.length === 0) {
-      html += treeNodeHtml(p, { isMain: true });
+      html += treeNodeHtml(p, { isMain: true, relation: 'Titular' });
     }
     html += '</div></div>';
 
@@ -729,21 +895,44 @@
     html += '</div>';
     treeContainer.innerHTML = html;
 
-    // Bind click events on tree nodes to navigate
-    treeContainer.querySelectorAll('[data-tree-dni]').forEach(node => {
-      node.addEventListener('click', () => {
-        const nodeDni = node.getAttribute('data-tree-dni');
-        if (nodeDni) {
-          // Navigate to this person
+    // Bind interactive actions on nodes
+    treeContainer.querySelectorAll('.btn-node-mini').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.getAttribute('data-tree-action');
+        const nodeDni = btn.getAttribute('data-dni');
+        if (!nodeDni) return;
+
+        if (action === 'explore') {
+          // Dynamic Expansion: Shift tree around this person without closing modal
+          openTreeModal(nodeDni);
+        } else if (action === 'detail') {
+          // Navigate to full detail
           closeTreeModal();
           setMode('dni');
           searchInput.value = nodeDni;
           btnClearSearch.classList.add('visible');
           search();
+        } else if (action === 'c4') {
+          // Open C4 for this person
+          closeTreeModal();
+          openC4Modal(nodeDni);
+        }
+      });
+    });
+
+    // Clicking the card body directly explores or navigates
+    treeContainer.querySelectorAll('.tree-node:not(.tree-node--ghost)').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-node-mini')) return;
+        const nodeDni = card.getAttribute('data-dni');
+        if (nodeDni && nodeDni !== p.dni) {
+          openTreeModal(nodeDni);
         }
       });
     });
   }
+
 
   /* ═══════════════════════════════════════════════════════════════════
      CERTIFICADO DE INSCRIPCIÓN C4 — RENIEC

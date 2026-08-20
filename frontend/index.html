@@ -49,23 +49,51 @@
     <div id="mobile-sheet-content"></div>
   </div>
 
-  <!-- Family Tree Modal -->
-  <div id="tree-modal" class="tree-overlay" role="dialog" aria-label="Árbol Genealógico">
+  <!-- Family Tree Interactive Modal -->
+  <div id="tree-modal" class="tree-overlay" role="dialog" aria-label="Árbol Genealógico Interactivo">
     <div class="tree-backdrop" data-close-tree></div>
     <div class="tree-panel">
       <div class="tree-panel__header">
-        <div class="tree-panel__title">
-          <span class="material-symbols-outlined" style="color:var(--accent-light)">account_tree</span>
-          <span>Árbol Genealógico</span>
+        <div class="tree-panel__title-wrap">
+          <div class="tree-panel__title">
+            <span class="material-symbols-outlined" style="color:#a855f7">account_tree</span>
+            <span>Árbol Genealógico</span>
+          </div>
+          <span id="tree-titular-badge" class="tree-titular-badge"></span>
         </div>
-        <button id="btn-close-tree" class="tree-panel__close" title="Cerrar">
-          <span class="material-symbols-outlined">close</span>
-        </button>
+
+        <!-- Family Stats Chips -->
+        <div id="tree-stats-bar" class="tree-stats-bar"></div>
+
+        <!-- Interactive Graph Controls -->
+        <div class="tree-panel__actions">
+          <div class="tree-zoom-controls">
+            <button id="btn-tree-zoom-out" class="btn-tree-ctrl" title="Alejar (Zoom -)">
+              <span class="material-symbols-outlined">remove</span>
+            </button>
+            <span id="tree-zoom-label" class="tree-zoom-label">100%</span>
+            <button id="btn-tree-zoom-in" class="btn-tree-ctrl" title="Acercar (Zoom +)">
+              <span class="material-symbols-outlined">add</span>
+            </button>
+            <button id="btn-tree-reset" class="btn-tree-ctrl" title="Centrar Árbol">
+              <span class="material-symbols-outlined">center_focus_strong</span>
+            </button>
+          </div>
+          <button id="btn-close-tree" class="tree-panel__close" title="Cerrar">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
       </div>
-      <div id="tree-container" class="tree-container">
-        <div class="tree-loading">
-          <div class="qs-spinner"></div>
-          <p>Construyendo árbol genealógico...</p>
+
+      <!-- Graph Canvas Viewport (Drag & Zoom) -->
+      <div id="tree-viewport" class="tree-viewport">
+        <div id="tree-canvas" class="tree-canvas">
+          <div id="tree-container" class="tree-container">
+            <div class="tree-loading">
+              <div class="qs-spinner"></div>
+              <p>Construyendo red genealógica interactiva...</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
