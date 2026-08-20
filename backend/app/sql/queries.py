@@ -326,7 +326,7 @@ BUSCAR_HERMANOS_RANKED = f"""
     LIMIT 15
 """
 
-# 4. Buscar hijos: filtro estricto por nombre en campo padre/madre + apellido de herencia + edad coherente
+# 4. Buscar hijos: cruce integral de datos compartidos (nombre progenitor, apellidos, ubigeos, dirección, edad)
 BUSCAR_HIJOS_RANKED = f"""
     SELECT
         p.dni, p.ap_pat, p.ap_mat, p.nombres, p.padre, p.madre, p.fecha_nac,
@@ -334,52 +334,80 @@ BUSCAR_HIJOS_RANKED = f"""
         {SEXO_EXPR} AS sexo, p.est_civil,
         {EDAD_COLS},
         (
-            -- El nombre del progenitor coincide exactamente en el campo padre o madre (OBLIGATORIO)
-            CASE WHEN :es_padre AND lower(p.padre) = :progenitor_nombre THEN 10000
+            -- 1. Coincidencia de nombre del progenitor en campo padre o madre
+            CASE WHEN :es_padre AND :progenitor_nombre_completo != '' AND lower(p.padre) = :progenitor_nombre_completo THEN 15000
+                 WHEN NOT :es_padre AND :progenitor_nombre_completo != '' AND lower(p.madre) = :progenitor_nombre_completo THEN 15000
+                 WHEN :es_padre AND lower(p.padre) = :progenitor_nombre THEN 10000
                  WHEN NOT :es_padre AND lower(p.madre) = :progenitor_nombre THEN 10000
                  WHEN :es_padre AND lower(p.padre) LIKE :progenitor_nombre || ' %' THEN 8000
                  WHEN NOT :es_padre AND lower(p.madre) LIKE :progenitor_nombre || ' %' THEN 8000
                  WHEN :es_padre AND lower(p.padre) LIKE '% ' || :progenitor_nombre THEN 6000
                  WHEN NOT :es_padre AND lower(p.madre) LIKE '% ' || :progenitor_nombre THEN 6000
+                 WHEN :es_padre AND lower(p.padre) LIKE '% ' || :progenitor_nombre || ' %' THEN 5000
+                 WHEN NOT :es_padre AND lower(p.madre) LIKE '% ' || :progenitor_nombre || ' %' THEN 5000
                  ELSE 0
             END
-            -- Cónyuge/Madre coincide si se conoce
-            + CASE WHEN :conyuge_nombre != '' AND (:es_padre AND lower(p.madre) = :conyuge_nombre OR NOT :es_padre AND lower(p.padre) = :conyuge_nombre) THEN 6000
-                   WHEN :conyuge_nombre != '' AND (:es_padre AND lower(p.madre) LIKE :conyuge_nombre || ' %' OR NOT :es_padre AND lower(p.padre) LIKE :conyuge_nombre || ' %') THEN 4000
+            -- 2. Herencia de apellidos compartidos
+            + CASE WHEN :es_padre AND lower(p.ap_pat) = :progenitor_ap_pat THEN 6000
+                   WHEN NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_pat THEN 6000
                    ELSE 0
             END
-            -- Herencia de apellido paterno (del padre) o materno (de la madre)
-            + CASE WHEN :es_padre AND lower(p.ap_pat) = :progenitor_ap_pat THEN 5000
-                   WHEN NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_pat THEN 5000
+            + CASE WHEN :progenitor_ap_mat != '' AND (
+                       (:es_padre AND lower(p.ap_mat) = :progenitor_ap_mat)
+                       OR (NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_mat)
+                   ) THEN 2500 ELSE 0
+            END
+            -- 3. Ubigeo de nacimiento compartido (distrito exacto > provincia > departamento)
+            + CASE WHEN :progenitor_ubigeo_nac != '' AND p.ubigeo_nac = :progenitor_ubigeo_nac THEN 5000
+                   WHEN :progenitor_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:progenitor_ubigeo_nac, 1, 4) THEN 3000
+                   WHEN :progenitor_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 2) = SUBSTRING(:progenitor_ubigeo_nac, 1, 2) THEN 1200
                    ELSE 0
             END
-            -- Misma dirección de residencia
-            + CASE WHEN :progenitor_direccion != '' AND lower(p.direccion) = :progenitor_direccion THEN 3000 ELSE 0 END
-            -- Ubigeo nacimiento: distrito > provincia > departamento
-            + CASE WHEN :progenitor_ubigeo != '' AND p.ubigeo_nac = :progenitor_ubigeo THEN 4000
-                   WHEN :progenitor_ubigeo != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:progenitor_ubigeo, 1, 4) THEN 2500
-                   WHEN :progenitor_ubigeo != '' AND SUBSTRING(p.ubigeo_nac, 1, 2) = SUBSTRING(:progenitor_ubigeo, 1, 2) THEN 1200
+            -- 4. Ubigeo de domicilio compartido (distrito exacto > departamento)
+            + CASE WHEN :progenitor_ubigeo_dir != '' AND p.ubigeo_dir = :progenitor_ubigeo_dir THEN 4000
+                   WHEN :progenitor_ubigeo_dir != '' AND SPLIT_PART(p.ubigeo_dir, '-', 1) = SPLIT_PART(:progenitor_ubigeo_dir, '-', 1) THEN 1500
                    ELSE 0
             END
-            -- Edad coherente (el progenitor tenía entre 14 y 55 años cuando nació el hijo)
+            -- 5. Cruce de geolocalización (nacimiento del hijo coincide con domicilio del padre o viceversa)
+            + CASE WHEN :progenitor_ubigeo_dir != '' AND p.ubigeo_nac != '' AND :progenitor_ubigeo_nac != ''
+                        AND p.ubigeo_nac = :progenitor_ubigeo_dir THEN 2500
+                   WHEN :progenitor_ubigeo_nac != '' AND p.ubigeo_dir != ''
+                        AND p.ubigeo_dir = :progenitor_ubigeo_nac THEN 2000
+                   ELSE 0
+            END
+            -- 6. Misma dirección física exacta o coincidencia de localidad/comunidad/calle
+            + CASE WHEN :progenitor_direccion != '' AND lower(p.direccion) = :progenitor_direccion THEN 6000
+                   WHEN :progenitor_direccion != '' AND (
+                       lower(p.direccion) LIKE '%' || :progenitor_direccion || '%'
+                       OR :progenitor_direccion LIKE '%' || lower(p.direccion) || '%'
+                   ) THEN 4000
+                   ELSE 0
+            END
+            -- 7. Coherencia biológica y rango óptimo de edad reproductiva
             + CASE WHEN p.fecha_nac IS NOT NULL AND CAST(:progenitor_fecha_nac AS date) IS NOT NULL
+                        AND EXTRACT(YEAR FROM age(p.fecha_nac, CAST(:progenitor_fecha_nac AS date))) BETWEEN 18 AND 42
+                   THEN 4000
+                   WHEN p.fecha_nac IS NOT NULL AND CAST(:progenitor_fecha_nac AS date) IS NOT NULL
                         AND EXTRACT(YEAR FROM age(p.fecha_nac, CAST(:progenitor_fecha_nac AS date))) BETWEEN 14 AND 55
-                   THEN 4000 ELSE 0
+                   THEN 2000
+                   ELSE 0
             END
         ) AS score
     FROM personas p
     WHERE p.search_vector @@ to_tsquery('simple', :tsq)
       AND p.dni != :progenitor_dni
-      -- REQUISITO 1: El campo padre/madre DEBE contener el nombre de pila del progenitor
+      -- REQUISITO 1: El campo padre/madre DEBE contener el nombre del progenitor
       AND (
           (:es_padre AND p.padre IS NOT NULL AND p.padre != '' AND (
               lower(p.padre) = :progenitor_nombre
+              OR lower(p.padre) = :progenitor_nombre_completo
               OR lower(p.padre) LIKE :progenitor_nombre || ' %'
               OR lower(p.padre) LIKE '% ' || :progenitor_nombre
               OR lower(p.padre) LIKE '% ' || :progenitor_nombre || ' %'
           ))
           OR (NOT :es_padre AND p.madre IS NOT NULL AND p.madre != '' AND (
               lower(p.madre) = :progenitor_nombre
+              OR lower(p.madre) = :progenitor_nombre_completo
               OR lower(p.madre) LIKE :progenitor_nombre || ' %'
               OR lower(p.madre) LIKE '% ' || :progenitor_nombre
               OR lower(p.madre) LIKE '% ' || :progenitor_nombre || ' %'
@@ -390,13 +418,13 @@ BUSCAR_HIJOS_RANKED = f"""
           (:es_padre AND lower(p.ap_pat) = :progenitor_ap_pat)
           OR (NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_pat)
       )
-      -- REGLA BIOLÓGICA ESTRICTA: El hijo NUNCA puede ser mayor o de igual edad que su padre/madre (mínimo 13 años menor)
+      -- REGLA BIOLÓGICA ESTRICTA: El hijo NUNCA puede ser mayor o de igual edad que su progenitor
       AND p.fecha_nac IS NOT NULL
       AND CAST(:progenitor_fecha_nac AS date) IS NOT NULL
       AND p.fecha_nac > CAST(:progenitor_fecha_nac AS date)
       AND EXTRACT(YEAR FROM age(p.fecha_nac, CAST(:progenitor_fecha_nac AS date))) BETWEEN 13 AND 70
     ORDER BY score DESC
-    LIMIT 15
+    LIMIT 20
 """
 
 RUC_POR_DNI = """

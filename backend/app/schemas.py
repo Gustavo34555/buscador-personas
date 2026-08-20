@@ -117,4 +117,15 @@ class ArbolResponse(BaseModel):
     abuela_materna: ArbolNodo | None = None
     hermanos: list[ArbolNodo] = []
     hijos: list[ArbolNodo] = []
+class CertificadoC4Response(BaseModel):
+    """Datos oficiales del Certificado de Inscripción C4 RENIEC."""
 
+    codigo_certificado: str
+    codigo_verificacion: str
+    fecha_emision_c4: str
+    persona: PersonaResponse
+    mrz_linea1: str
+    mrz_linea2: str
+    digito_verificador: str
+    firma_digital: str
+    url_verificacion: str

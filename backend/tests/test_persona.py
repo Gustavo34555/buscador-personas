@@ -113,3 +113,39 @@ def test_rate_limit_persona(client, monkeypatch):
     finally:
         search_rate_limiter.max_hits = 60
         search_rate_limiter.clear()
+
+
+def test_arbol_dni_invalido(client):
+    res = client.get("/persona/123/arbol")
+    assert res.status_code == 400
+
+
+def test_arbol_persona_encontrada(client, monkeypatch):
+    _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
+    res = client.get("/persona/12345678/arbol")
+    assert res.status_code == 200
+    body = res.json()
+    assert "persona" in body
+    assert body["persona"]["dni"] == "12345678"
+    assert "hijos" in body
+    assert "hermanos" in body
+
+
+def test_c4_dni_invalido(client):
+    res = client.get("/persona/123/c4")
+    assert res.status_code == 400
+
+
+def test_c4_persona_encontrada(client, monkeypatch):
+    _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
+    res = client.get("/persona/12345678/c4")
+    assert res.status_code == 200
+    body = res.json()
+    assert "codigo_certificado" in body
+    assert "codigo_verificacion" in body
+    assert "mrz_linea1" in body
+    assert "mrz_linea2" in body
+    assert "digito_verificador" in body
+    assert body["persona"]["dni"] == "12345678"
+
+

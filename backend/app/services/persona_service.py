@@ -218,6 +218,68 @@ def _es_edad_hijo_valida(fecha_hijo, fecha_progenitor, min_dif=13, max_dif=70) -
     return _es_edad_progenitor_valida(fecha_progenitor, fecha_hijo, min_dif=min_dif, max_dif=max_dif)
 
 
+def _es_nombre_progenitor_compatible(nombre_registrado_hijo: str, nombres_progenitor: str, ap_pat: str = "", ap_mat: str = "") -> bool:
+    """Verifica que el nombre registrado en padre/madre no contenga nombres conflictivos ajenos.
+
+    Por ejemplo, si la madre es 'JAQUELIN MILEYDI' y el hijo tiene madre 'JAQUELIN DIANA',
+    el token 'DIANA' es un nombre ajeno y se descarta inmediatamente como homónimo.
+    """
+    if not nombre_registrado_hijo or not nombres_progenitor:
+        return False
+
+    tokens_registrados = [t.strip().lower() for t in nombre_registrado_hijo.split() if t.strip()]
+    tokens_validos = set(
+        [t.strip().lower() for t in (nombres_progenitor + " " + ap_pat + " " + ap_mat).split() if t.strip()]
+    )
+    return all(t in tokens_validos for t in tokens_registrados)
+
+
+def _es_edad_pareja_coherente(fecha_1, fecha_2, max_dif=25) -> bool:
+    """Valida que la diferencia de edad entre cónyuges/pareja sea biológicamente razonable (<= 25 años)."""
+    d1 = _parse_date(fecha_1)
+    d2 = _parse_date(fecha_2)
+    if not d1 or not d2:
+        return True
+    return abs((d1 - d2).days / 365.25) <= max_dif
+
+
+def _buscar_pareja_en_bd(conn, nombres_pareja, ap_pat_pareja, titular_fila, es_padre_titular):
+    """Busca en la base de datos a la pareja (madre o padre) para validar la relación familiar."""
+    primer_nombre = _sanitize_word(nombres_pareja.split()[0]) if nombres_pareja.split() else ""
+    ap_pat_clean = _sanitize_word(ap_pat_pareja)
+    if not primer_nombre or not ap_pat_clean:
+        return None
+
+    tsq = f"{ap_pat_clean} & {primer_nombre}"
+    ubigeo_nac = titular_fila.get("ubigeo_nac") or ""
+    fecha_nac_titular = titular_fila.get("fecha_nac")
+
+    query = """
+        SELECT dni, ap_pat, ap_mat, nombres, fecha_nac, ubigeo_nac, ubigeo_dir, direccion
+        FROM personas
+        WHERE search_vector @@ to_tsquery('simple', :tsq)
+          AND lower(ap_pat) = :ap_pat
+          AND (lower(nombres) = :nombres OR lower(nombres) LIKE :primer_nom || ' %')
+          AND (:ubigeo_nac = '' OR ubigeo_nac = :ubigeo_nac OR SUBSTRING(ubigeo_nac, 1, 4) = SUBSTRING(:ubigeo_nac, 1, 4))
+        LIMIT 5;
+    """
+    try:
+        filas = conn.execute(text(query), {
+            "tsq": tsq,
+            "ap_pat": ap_pat_clean.lower(),
+            "nombres": nombres_pareja.strip().lower(),
+            "primer_nom": primer_nombre.lower(),
+            "ubigeo_nac": ubigeo_nac,
+        }).mappings().all()
+
+        for f in filas:
+            if _es_edad_pareja_coherente(f.get("fecha_nac"), fecha_nac_titular):
+                return dict(f)
+    except Exception:
+        pass
+    return None
+
+
 def _build_tsq(*words) -> str:
     """Construye un tsquery seguro uniendo palabras con &."""
     clean = [_sanitize_word(w) for w in words if w and _sanitize_word(w)]
@@ -401,25 +463,17 @@ def construir_arbol(dni: str):
             ).mappings().all()
             resultado["hermanos"] = [_fila_a_nodo(h) for h in hermanos_filas]
 
-        # 5. Buscar hijos (regla biológica: progenitor debe tener >= 13 años y los hijos deben ser menores)
+        # 5. Buscar hijos: cruce integral de datos compartidos (nombre progenitor, apellidos, ubigeos, dirección, edad)
         nombres_persona = (persona_fila.get("nombres") or "").strip().lower()
         ap_pat_persona = ap_pat_hijo
+        ap_mat_persona = ap_mat_hijo
         sexo_persona = str(persona_fila.get("sexo") or "")
         es_padre = sexo_persona in ("1", "Masculino")
 
         primer_nombre_persona = nombres_persona.split()[0] if nombres_persona.split() else ""
         
-        conyuge_nombre = ""
-        if es_padre and madre_texto:
-            conyuge_nombre = madre_texto.strip().lower()
-        elif not es_padre and padre_texto:
-            conyuge_nombre = padre_texto.strip().lower()
-
-        # Si se conoce el nombre del cónyuge, acelerar con GIN
-        if conyuge_nombre and conyuge_nombre.split():
-            tsq_hijos = _build_tsq(ap_pat_persona, conyuge_nombre.split()[0]) or _build_tsq(ap_pat_persona)
-        else:
-            tsq_hijos = _build_tsq(ap_pat_persona)
+        # El apellido heredado está presente en el search_vector del hijo
+        tsq_hijos = _build_tsq(ap_pat_persona)
 
         # Solo buscar hijos si se conoce la fecha de nacimiento y la persona tiene edad suficiente
         d_persona = _parse_date(fecha_nac_persona)
@@ -432,18 +486,117 @@ def construir_arbol(dni: str):
                     "tsq": tsq_hijos,
                     "progenitor_dni": dni,
                     "progenitor_nombre": primer_nombre_persona,
-                    "conyuge_nombre": conyuge_nombre,
+                    "progenitor_nombre_completo": nombres_persona,
                     "progenitor_ap_pat": ap_pat_persona,
+                    "progenitor_ap_mat": ap_mat_persona,
                     "es_padre": es_padre,
-                    "progenitor_ubigeo": (persona_fila.get("ubigeo_nac") or ""),
+                    "progenitor_ubigeo_nac": (persona_fila.get("ubigeo_nac") or ""),
+                    "progenitor_ubigeo_dir": (persona_fila.get("ubigeo_dir") or ""),
                     "progenitor_direccion": (persona_fila.get("direccion") or "").strip().lower(),
                     "progenitor_fecha_nac": str(fecha_nac_persona),
                 },
             ).mappings().all()
-            resultado["hijos"] = [
-                _fila_a_nodo(h) for h in hijos_filas
+
+            campo_progenitor = "padre" if es_padre else "madre"
+            hijos_candidatos = [
+                dict(h) for h in hijos_filas
                 if _es_edad_hijo_valida(h.get("fecha_nac"), fecha_nac_persona)
+                and _es_nombre_progenitor_compatible(
+                    h.get(campo_progenitor),
+                    nombres_persona,
+                    ap_pat_persona,
+                    ap_mat_persona
+                )
             ]
+
+            # ══════════════════════════════════════════════════════════════════
+            # TRIANGULACIÓN Y CORRELACIÓN ESTRICTA PADRE-MADRE-HIJO
+            # ══════════════════════════════════════════════════════════════════
+            if hijos_candidatos:
+                # 1. Agrupar candidatos por la unidad parental de la otra rama:
+                #    Si el titular es PADRE -> agrupar por (madre_nombre, ap_mat)
+                #    Si el titular es MADRE -> agrupar por (padre_nombre, ap_pat)
+                campo_pareja_nombre = "madre" if es_padre else "padre"
+                campo_pareja_apellido = "ap_mat" if es_padre else "ap_pat"
+
+                dir_padre = (persona_fila.get("direccion") or "").strip().lower()
+                ubigeo_nac_padre = persona_fila.get("ubigeo_nac") or ""
+                ubigeo_dir_padre = persona_fila.get("ubigeo_dir") or ""
+
+                from collections import defaultdict
+                familias_por_pareja = defaultdict(list)
+                pareja_validada_cache = {}
+
+                for h in hijos_candidatos:
+                    nom_pareja = (h.get(campo_pareja_nombre) or "").strip().lower()
+                    ap_pareja = (h.get(campo_pareja_apellido) or "").strip().lower()
+                    clave_pareja = (nom_pareja, ap_pareja)
+                    familias_por_pareja[clave_pareja].append(h)
+
+                # 2. Evaluar y calificar cada relación de pareja (Padre + Madre)
+                hijos_calificados = []
+                for (nom_pareja, ap_pareja), lista_hijos in familias_por_pareja.items():
+                    # Verificar si la pareja existe en la BD en la misma zona
+                    pareja_bd = None
+                    if nom_pareja and ap_pareja:
+                        clave_str = f"{nom_pareja}:{ap_pareja}"
+                        if clave_str not in pareja_validada_cache:
+                            pareja_validada_cache[clave_str] = _buscar_pareja_en_bd(
+                                conn, nom_pareja, ap_pareja, persona_fila, es_padre
+                            )
+                        pareja_bd = pareja_validada_cache[clave_str]
+
+                    # Calcular afinidad global de esta unidad familiar
+                    afinidad_pareja = 0
+                    if pareja_bd:
+                        # Pareja confirmada en BD con misma geolocalización (+8000)
+                        afinidad_pareja += 8000
+                    
+                    # Número de hijos compartidos en la misma unión (+2000 por cada hermano)
+                    if len(lista_hijos) > 1:
+                        afinidad_pareja += min(len(lista_hijos) * 2000, 6000)
+
+                    for h in lista_hijos:
+                        bonus = afinidad_pareja
+                        # A. Mismo distrito de nacimiento (+3000)
+                        if ubigeo_nac_padre and h.get("ubigeo_nac") == ubigeo_nac_padre:
+                            bonus += 3000
+                        # B. Mismo distrito de domicilio (+2500)
+                        if ubigeo_dir_padre and h.get("ubigeo_dir") == ubigeo_dir_padre:
+                            bonus += 2500
+                        # C. Misma dirección o localidad compartida (+3500)
+                        dir_hijo = (h.get("direccion") or "").strip().lower()
+                        if dir_padre and dir_hijo and (dir_padre == dir_hijo or dir_padre in dir_hijo or dir_hijo in dir_padre):
+                            bonus += 3500
+
+                        h["score_total"] = (h.get("score") or 0) + bonus
+                        hijos_calificados.append(h)
+
+                # 3. Filtrar clúster con la mayor cantidad de datos compartidos y relación padre-madre
+                if hijos_calificados:
+                    max_score_total = max(h["score_total"] for h in hijos_calificados)
+                    
+                    # Umbral estricto: Solo aceptar candidatos que demuestren correlación padre-madre
+                    # o fuerte arraigo geográfico/habitacional compartido (score_total >= 25000)
+                    if max_score_total >= 32000:
+                        hijos_filtrados = [
+                            h for h in hijos_calificados
+                            if h["score_total"] >= max_score_total - 6000 and h["score_total"] >= 25000
+                        ]
+                    elif max_score_total >= 25000:
+                        hijos_filtrados = [
+                            h for h in hijos_calificados
+                            if h["score_total"] >= max_score_total - 4000 and h["score_total"] >= 25000
+                        ]
+                    else:
+                        hijos_filtrados = []
+
+                    # 4. Ordenar cronológicamente (de mayor a menor por fecha de nacimiento)
+                    hijos_filtrados.sort(
+                        key=lambda x: str(x.get("fecha_nac") or "1900-01-01")
+                    )
+
+                    resultado["hijos"] = [_fila_a_nodo(h) for h in hijos_filtrados]
 
         return resultado
 

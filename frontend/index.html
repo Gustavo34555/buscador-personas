@@ -71,6 +71,36 @@
     </div>
   </div>
 
+  <!-- Certificado C4 RENIEC Modal -->
+  <div id="c4-modal" class="c4-overlay" role="dialog" aria-label="Certificado de Inscripción C4 RENIEC">
+    <div class="c4-backdrop" data-close-c4></div>
+    <div class="c4-panel">
+      <div class="c4-panel__header">
+        <div class="c4-panel__title">
+          <span class="material-symbols-outlined" style="color:#38bdf8">verified</span>
+          <span>Certificado de Inscripción C4 — RENIEC</span>
+        </div>
+        <div class="c4-panel__actions">
+          <button id="btn-print-c4" class="btn-c4-action btn-c4-action--primary" title="Imprimir o Guardar como PDF">
+            <span class="material-symbols-outlined">print</span>
+            <span>Imprimir / Guardar PDF</span>
+          </button>
+          <button id="btn-close-c4" class="c4-panel__close" title="Cerrar">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+      </div>
+      <div class="c4-panel__body">
+        <div id="c4-container" class="c4-container">
+          <div class="c4-loading">
+            <div class="qs-spinner"></div>
+            <p>Generando Certificado C4 Oficial...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <header class="header">
     <div class="header__inner">
       <div class="header__brand">
