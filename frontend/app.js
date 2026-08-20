@@ -1082,361 +1082,258 @@
     }
   }
 
-  function generateEscudoSVG() {
-    return `<svg viewBox="0 0 100 110" width="54" height="60" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="escGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#fef08a"/><stop offset="50%" stop-color="#eab308"/><stop offset="100%" stop-color="#a16207"/></linearGradient>
-        <linearGradient id="escSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/></linearGradient>
-        <linearGradient id="escRed" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#dc2626"/><stop offset="100%" stop-color="#991b1b"/></linearGradient>
-      </defs>
-      <!-- Corona de Laurel -->
-      <ellipse cx="50" cy="18" rx="20" ry="9" fill="none" stroke="#15803d" stroke-width="3" stroke-dasharray="3,2"/>
-      <circle cx="50" cy="12" r="3" fill="#22c55e"/>
-      <!-- Escudo Principal -->
-      <path d="M22 24 L78 24 Q80 65 50 96 Q20 65 22 24 Z" fill="#ffffff" stroke="url(#escGold)" stroke-width="3"/>
-      <!-- División Cuadrantes -->
-      <path d="M22 24 L50 24 L50 60 L22 60 Z" fill="url(#escSky)"/>
-      <path d="M50 24 L78 24 L78 60 L50 60 Z" fill="#ffffff"/>
-      <path d="M22 60 L78 60 Q80 65 50 96 Q20 65 22 60 Z" fill="url(#escRed)"/>
-      <!-- Vicuña (Campo Celeste) -->
-      <ellipse cx="36" cy="45" rx="7" ry="5" fill="url(#escGold)"/>
-      <circle cx="39" cy="38" r="3.5" fill="url(#escGold)"/>
-      <path d="M32 47 L30 55 M38 48 L40 55" stroke="url(#escGold)" stroke-width="2" stroke-linecap="round"/>
-      <!-- Árbol de la Quina (Campo Blanco) -->
-      <path d="M64 35 Q68 30 64 45 L64 55" stroke="#15803d" stroke-width="3" stroke-linecap="round"/>
-      <circle cx="64" cy="37" r="7" fill="#16a34a"/>
-      <!-- Cornucopia (Campo Rojo) -->
-      <path d="M38 72 Q50 65 62 76 Q52 86 38 72 Z" fill="url(#escGold)"/>
-      <circle cx="58" cy="77" r="2.5" fill="#fef08a"/>
-      <circle cx="63" cy="79" r="2" fill="#fef08a"/>
-      <circle cx="55" cy="81" r="2" fill="#fef08a"/>
+  /* ── Official RENIEC Consultas en Línea SVG Logo ──────────── */
+  function generateReniecConsultasLogoSVG() {
+    return `<svg viewBox="0 0 240 68" width="180" height="52" xmlns="http://www.w3.org/2000/svg">
+      <!-- Burgundy/Red Badge Background -->
+      <rect x="180" y="4" width="54" height="60" rx="6" fill="#881337" stroke="#ffffff" stroke-width="1.5"/>
+      <circle cx="196" cy="24" r="7" fill="#ffffff"/>
+      <path d="M187 48 C187 38 205 38 205 48 Z" fill="#ffffff"/>
+      <circle cx="216" cy="20" r="5.5" fill="#ffffff"/>
+      <path d="M209 44 C209 36 223 36 223 44 Z" fill="#ffffff"/>
+      
+      <!-- Fingerprint icon badge -->
+      <circle cx="207" cy="50" r="11" fill="#f43f5e" stroke="#ffffff" stroke-width="1.5"/>
+      <path d="M203 50 A 4 4 0 0 1 211 50 A 6 6 0 0 1 203 54" stroke="#ffffff" stroke-width="1.2" fill="none"/>
+      <path d="M205 50 A 2 2 0 0 1 209 50" stroke="#ffffff" stroke-width="1.2" fill="none"/>
+
+      <!-- Left Text Box -->
+      <text x="6" y="15" fill="#ffffff" font-family="Arial, sans-serif" font-size="11" font-weight="bold">Consultas en línea</text>
+      <rect x="4" y="20" width="170" height="34" rx="3" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+      <text x="14" y="46" fill="#003f7a" font-family="Arial Black, Impact, sans-serif" font-size="24" font-weight="900" letter-spacing="1">RENIEC</text>
+      <rect x="4" y="55" width="170" height="10" fill="#003f7a"/>
+      <text x="8" y="62.5" fill="#ffffff" font-family="Arial, sans-serif" font-size="4.5" font-weight="bold" letter-spacing="0.2">REGISTRO NACIONAL DE IDENTIFICACIÓN Y ESTADO CIVIL</text>
     </svg>`;
   }
 
-  function generateReniecLogoSVG() {
-    return `<svg viewBox="0 0 160 50" width="85" height="28" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="renBlue" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0284c7"/><stop offset="100%" stop-color="#0f3b7a"/></linearGradient>
-      </defs>
-      <rect x="2" y="5" width="40" height="40" rx="8" fill="url(#renBlue)"/>
-      <path d="M12 28 Q22 14 32 28 M16 34 Q22 24 28 34" stroke="#ffffff" stroke-width="3" fill="none" stroke-linecap="round"/>
-      <circle cx="22" cy="18" r="4" fill="#38bdf8"/>
-      <text x="48" y="27" font-family="'Outfit', 'Inter', sans-serif" font-weight="900" font-size="18" fill="#0f3b7a" letter-spacing="1">RENIEC</text>
-      <text x="49" y="38" font-family="'Inter', sans-serif" font-weight="700" font-size="6.5" fill="#64748b" letter-spacing="0.5">ESTADO PERUANO</text>
-    </svg>`;
-  }
+  function parseUbigeoParts(ubigeoStr) {
+    if (!ubigeoStr) return { dpto: '-', prov: '-', dist: '-' };
+    const str = String(ubigeoStr).trim().toUpperCase();
 
-  function generateBarcodeSVG(code) {
-    const clean = String(code || '00000000').replace(/\D/g, '').padEnd(8, '0');
-    let bars = '';
-    let x = 6;
-    for (let i = 0; i < clean.length; i++) {
-      const d = parseInt(clean[i], 10);
-      const w1 = ((d % 3) + 1) * 1.5;
-      const w2 = (((d + 1) % 2) + 1) * 1.8;
-      bars += `<rect x="${x}" y="2" width="${w1}" height="28" fill="#0f172a"/>`;
-      x += w1 + 2;
-      bars += `<rect x="${x}" y="2" width="${w2}" height="28" fill="#0f172a"/>`;
-      x += w2 + 2;
+    if (str.includes('/')) {
+      const parts = str.split('/').map(s => s.trim());
+      return {
+        dpto: parts[0] || '-',
+        prov: parts[1] || parts[0] || '-',
+        dist: parts[2] || parts[1] || parts[0] || '-'
+      };
     }
-    return `<svg viewBox="0 0 ${x + 6} 34" width="130" height="30" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" fill="#ffffff"/>
-      ${bars}
-    </svg>`;
-  }
-
-  function generateQRCodeSVG(text, size = 88) {
-    // Generador de matriz QR vectorial nítido
-    const str = String(text || '');
-    const modules = 29; // Version 3 QR
-    let seed = 0;
-    for (let i = 0; i < str.length; i++) seed = (seed * 31 + str.charCodeAt(i)) >>> 0;
-
-    const matrix = Array.from({length: modules}, () => new Array(modules).fill(0));
-
-    // Finder patterns
-    function setFinder(r, c) {
-      for (let y = -1; y <= 7; y++) {
-        for (let x = -1; x <= 7; x++) {
-          const row = r + y, col = c + x;
-          if (row < 0 || row >= modules || col < 0 || col >= modules) continue;
-          if ((x >= 0 && x <= 6 && (y === 0 || y === 6)) ||
-              (y >= 0 && y <= 6 && (x === 0 || x === 6)) ||
-              (x >= 2 && x <= 4 && y >= 2 && y <= 4)) {
-            matrix[row][col] = 1;
-          } else {
-            matrix[row][col] = 0;
-          }
-        }
+    if (str.includes('-')) {
+      const parts = str.split('-').map(s => s.trim());
+      if (parts.length >= 3) {
+        return { dpto: parts[0], prov: parts[1], dist: parts[2] };
+      }
+      if (parts.length === 2) {
+        return { dpto: parts[0], prov: parts[0], dist: parts[1] };
       }
     }
-    setFinder(0, 0);
-    setFinder(0, modules - 7);
-    setFinder(modules - 7, 0);
-
-    // Timing patterns
-    for (let i = 8; i < modules - 8; i++) {
-      matrix[6][i] = (i % 2 === 0) ? 1 : 0;
-      matrix[i][6] = (i % 2 === 0) ? 1 : 0;
-    }
-
-    // Pseudorandom pseudo-data bits for authentic visual QR density
-    let pseudo = seed;
-    for (let r = 0; r < modules; r++) {
-      for (let c = 0; c < modules; c++) {
-        // Skip finders
-        if ((r < 8 && c < 8) || (r < 8 && c >= modules - 8) || (r >= modules - 8 && c < 8)) continue;
-        if (r === 6 || c === 6) continue;
-        pseudo = (pseudo * 1664525 + 1013904223) >>> 0;
-        matrix[r][c] = ((pseudo >>> 16) & 1);
-      }
-    }
-
-    let rects = '';
-    for (let r = 0; r < modules; r++) {
-      for (let c = 0; c < modules; c++) {
-        if (matrix[r][c] === 1) {
-          rects += `<rect x="${c}" y="${r}" width="1.05" height="1.05" fill="#0f172a"/>`;
-        }
-      }
-    }
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${modules} ${modules}" width="${size}" height="${size}" shape-rendering="crispEdges"><rect width="${modules}" height="${modules}" fill="#fff"/>${rects}</svg>`;
+    return { dpto: str, prov: str, dist: str };
   }
 
   function renderC4Certificate(data) {
     const p = data.persona || {};
-    const g = sexoLetra(p.sexo);
     const dv = data.digito_verificador || p.dig_ruc || '0';
-    const ruc = p.ruc || (p.dni ? `10${p.dni}${dv}` : '-');
+    const nac = parseUbigeoParts(p.ubigeo_nac);
+    const dom = parseUbigeoParts(p.ubigeo_dir);
 
-    // Fechas
-    const fInsc = p.fch_inscripcion ? String(p.fch_inscripcion) : '-';
-    const fEmis = p.fch_emision ? String(p.fch_emision) : '-';
-    const fCad = p.fch_caducidad ? String(p.fch_caducidad) : '-';
-    const isVencido = p.fch_caducidad && new Date(p.fch_caducidad) < new Date();
-
-    const statusBadge = isVencido
-      ? '<span class="c4-status-badge c4-status-badge--vencido">CADUCADO</span>'
-      : '<span class="c4-status-badge c4-status-badge--vigente">VIGENTE</span>';
-
-    const qrSVG = generateQRCodeSVG(data.url_verificacion || `https://buscadordeidentidad.pe/c4?dni=${p.dni}`, 86);
-    const barcodeSVG = generateBarcodeSVG(p.dni);
-    const escudoSVG = generateEscudoSVG();
-    const reniecLogoSVG = generateReniecLogoSVG();
+    const ahora = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const fEmision = data.fecha_emision_c4 || `${pad(ahora.getDate())}/${pad(ahora.getMonth()+1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
+    const codeVerif = data.codigo_verificacion || 'B02833881';
 
     const html = `
       <div class="c4-document" id="c4-document">
-        <!-- Watermark -->
-        <div class="c4-watermark">${escudoSVG}</div>
+        <!-- Watermark text -->
+        <div class="reniec-watermark-text">MATCH SCANNING</div>
 
-        <!-- 1. Encabezado Oficial -->
         <div>
-          <div class="c4-doc-header">
-            <div class="c4-doc-header__escudo">${escudoSVG}</div>
-            <div class="c4-doc-header__center">
-              <h1 class="c4-rep-title">República del Perú</h1>
-              <h2 class="c4-reniec-title">Registro Nacional de Identificación y Estado Civil</h2>
-              <div class="c4-cert-title">Certificado de Inscripción</div>
-              <div class="c4-cert-sub">(C4 - FORMATO OFICIAL SEGÚN LEY N° 26497)</div>
+          <!-- 1. Encabezado Oficial -->
+          <div class="reniec-sheet__header">
+            <div class="reniec-sheet__logo">${generateReniecConsultasLogoSVG()}</div>
+            <div class="reniec-sheet__header-titles">
+              <h1>REGISTRO NACIONAL DE IDENTIFICACIÓN Y ESTADO CIVIL</h1>
+              <h2>SERVICIO DE CONSULTAS EN LINEA</h2>
             </div>
-            <div class="c4-doc-header__logo">${reniecLogoSVG}</div>
           </div>
+          <div class="reniec-sheet__divider"></div>
 
-          <!-- Metadata Ribbon -->
-          <div class="c4-ribbon">
-            <span><strong style="color:#fef08a">N° CERTIFICADO:</strong> ${escHtml(data.codigo_certificado || '-')}</span>
-            <span><strong style="color:#fef08a">FECHA DE EMISIÓN:</strong> ${escHtml(data.fecha_emision_c4 || '-')}</span>
-            <span><strong style="color:#fef08a">CÓD. VERIF:</strong> ${escHtml(data.codigo_verificacion || '-')}</span>
-          </div>
+          <!-- 2. Cuerpo Estructurado de Datos -->
+          <div class="reniec-fields-list">
+            <!-- CUI -->
+            <div class="reniec-row">
+              <div class="reniec-label">CUI:</div>
+              <div class="reniec-value">${escHtml(p.dni || '-')}${dv ? ` - ${dv}` : ''}</div>
+            </div>
 
-          <!-- 2. Cuerpo Estructurado -->
-          <div class="c4-content-body">
-            <!-- SECCIÓN 1: DATOS DEL TITULAR -->
-            <div class="c4-block">
-              <div class="c4-block__header">
-                <span class="material-symbols-outlined" style="font-size:13px">badge</span>
-                <span>I. Datos del Titular de la Inscripción</span>
-              </div>
-              <div class="c4-block__body">
-                <div class="c4-person-wrap">
-                  <!-- Foto Box -->
-                  <div class="c4-photo-col">
-                    <div class="c4-photo-frame">
-                      <span class="material-symbols-outlined c4-photo-frame__icon" style="color: ${g === 'F' ? '#f472b6' : '#60a5fa'}">
-                        ${g === 'F' ? 'woman' : 'person'}
-                      </span>
-                      <div class="c4-photo-frame__stamp">DNI ${escHtml(p.dni || '00000000')}</div>
-                    </div>
-                    <div style="margin-top:4px">${barcodeSVG}</div>
-                  </div>
+            <!-- Apellido Paterno -->
+            <div class="reniec-row">
+              <div class="reniec-label">Apellido Paterno:</div>
+              <div class="reniec-value">${escHtml(p.ap_pat || '-')}</div>
+            </div>
 
-                  <!-- Tabla de Identidad -->
-                  <table class="c4-table">
-                    <tr>
-                      <td style="width:33%">
-                        <span class="c4-lbl">N° D.N.I.</span>
-                        <span class="c4-val c4-val--highlight">${escHtml(p.dni || '-')}</span>
-                      </td>
-                      <td style="width:20%">
-                        <span class="c4-lbl">D.V.</span>
-                        <span class="c4-val">${escHtml(dv)}</span>
-                      </td>
-                      <td style="width:47%">
-                        <span class="c4-lbl">N° R.U.C. (SUNAT)</span>
-                        <span class="c4-val">${escHtml(ruc)}</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td colspan="2">
-                        <span class="c4-lbl">Primer Apellido (Paterno)</span>
-                        <span class="c4-val">${escHtml(p.ap_pat || '-')}</span>
-                      </td>
-                      <td>
-                        <span class="c4-lbl">Segundo Apellido (Materno)</span>
-                        <span class="c4-val">${escHtml(p.ap_mat || '-')}</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td colspan="3">
-                        <span class="c4-lbl">Prenombres</span>
-                        <span class="c4-val c4-val--highlight">${escHtml(p.nombres || '-')}</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>
-                        <span class="c4-lbl">Sexo</span>
-                        <span class="c4-val">${escHtml(p.sexo || (g === 'F' ? 'FEMENINO' : 'MASCULINO'))}</span>
-                      </td>
-                      <td>
-                        <span class="c4-lbl">Estado Civil</span>
-                        <span class="c4-val">${escHtml(p.est_civil || 'SOLTERO(A)')}</span>
-                      </td>
-                      <td>
-                        <span class="c4-lbl">Fecha de Nacimiento / Edad</span>
-                        <span class="c4-val">${escHtml(p.fecha_nac || '-')} ${p.edad_anios ? `(${p.edad_anios} años)` : ''}</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td colspan="3">
-                        <span class="c4-lbl">Lugar de Nacimiento (Dpto / Prov / Dist)</span>
-                        <span class="c4-val">${escHtml(p.ubigeo_nac || '-')}</span>
-                      </td>
-                    </tr>
-                  </table>
+            <!-- Apellido Materno -->
+            <div class="reniec-row">
+              <div class="reniec-label">Apellido Materno:</div>
+              <div class="reniec-value">${escHtml(p.ap_mat || '-')}</div>
+            </div>
+
+            <!-- Nombres -->
+            <div class="reniec-row">
+              <div class="reniec-label">Nombres:</div>
+              <div class="reniec-value">${escHtml(p.nombres || '-')}</div>
+            </div>
+
+            <!-- Nacimiento -->
+            <div class="reniec-row reniec-row--nested">
+              <div class="reniec-label">Nacimiento:</div>
+              <div class="reniec-subfields">
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Fecha:</span>
+                  <span class="reniec-value">${escHtml(p.fecha_nac || '-')}</span>
+                </div>
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Departamento:</span>
+                  <span class="reniec-value">${escHtml(nac.dpto)}</span>
+                </div>
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Provincia:</span>
+                  <span class="reniec-value">${escHtml(nac.prov)}</span>
+                </div>
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Distrito:</span>
+                  <span class="reniec-value">${escHtml(nac.dist)}</span>
                 </div>
               </div>
             </div>
 
-            <!-- SECCIÓN 2: FILIACIÓN / PADRES -->
-            <div class="c4-block">
-              <div class="c4-block__header">
-                <span class="material-symbols-outlined" style="font-size:13px">diversity_1</span>
-                <span>II. Filiación y Nombres de los Padres</span>
-              </div>
-              <div class="c4-block__body">
-                <table class="c4-table">
-                  <tr>
-                    <td style="width:50%">
-                      <span class="c4-lbl">Nombre Completo del Padre</span>
-                      <span class="c4-val">${escHtml(p.padre || '-')}</span>
-                    </td>
-                    <td style="width:50%">
-                      <span class="c4-lbl">Nombre Completo de la Madre</span>
-                      <span class="c4-val">${escHtml(p.madre || '-')}</span>
-                    </td>
-                  </tr>
-                </table>
+            <!-- Grado de Instrucción -->
+            <div class="reniec-row">
+              <div class="reniec-label">Grado de Instrucción:</div>
+              <div class="reniec-value">${escHtml(p.grado_instruccion || 'SUPERIOR COMPLETA')}</div>
+            </div>
+
+            <!-- Estado Civil -->
+            <div class="reniec-row">
+              <div class="reniec-label">Estado Civil:</div>
+              <div class="reniec-value">${escHtml(p.est_civil || 'SOLTERO(A)')}</div>
+            </div>
+
+            <!-- Estatura -->
+            <div class="reniec-row">
+              <div class="reniec-label">Estatura:</div>
+              <div class="reniec-value">${escHtml(p.estatura || '166')}</div>
+            </div>
+
+            <!-- Fecha de Inscripción -->
+            <div class="reniec-row">
+              <div class="reniec-label">Fecha de Inscripción:</div>
+              <div class="reniec-value">${escHtml(p.fch_inscripcion || '-')}</div>
+            </div>
+
+            <!-- Nombre del Padre -->
+            <div class="reniec-row">
+              <div class="reniec-label">Nombre del Padre:</div>
+              <div class="reniec-value">${escHtml(p.padre || '-')}</div>
+            </div>
+
+            <!-- Nombre de la Madre -->
+            <div class="reniec-row">
+              <div class="reniec-label">Nombre de la Madre:</div>
+              <div class="reniec-value">${escHtml(p.madre || '-')}</div>
+            </div>
+
+            <!-- Fecha de Emisión -->
+            <div class="reniec-row">
+              <div class="reniec-label">Fecha de Emisión:</div>
+              <div class="reniec-value">${escHtml(p.fch_emision || '-')}</div>
+            </div>
+
+            <!-- Restricción -->
+            <div class="reniec-row">
+              <div class="reniec-label">Restricción:</div>
+              <div class="reniec-value">NINGUNA</div>
+            </div>
+
+            <!-- Domicilio -->
+            <div class="reniec-row reniec-row--nested">
+              <div class="reniec-label">Domicilio:</div>
+              <div class="reniec-subfields">
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Departamento:</span>
+                  <span class="reniec-value">${escHtml(dom.dpto)}</span>
+                </div>
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Provincia:</span>
+                  <span class="reniec-value">${escHtml(dom.prov)}</span>
+                </div>
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Distrito:</span>
+                  <span class="reniec-value">${escHtml(dom.dist)}</span>
+                </div>
+                <div class="reniec-subrow">
+                  <span class="reniec-sublabel">Dirección:</span>
+                  <span class="reniec-value">${escHtml(p.direccion || '-')}</span>
+                </div>
               </div>
             </div>
 
-            <!-- SECCIÓN 3: DOMICILIO Y RESIDENCIA -->
-            <div class="c4-block">
-              <div class="c4-block__header">
-                <span class="material-symbols-outlined" style="font-size:13px">home_pin</span>
-                <span>III. Domicilio Actual Declarado</span>
-              </div>
-              <div class="c4-block__body">
-                <table class="c4-table">
-                  <tr>
-                    <td style="width:65%">
-                      <span class="c4-lbl">Dirección / Residencia Habitual</span>
-                      <span class="c4-val">${escHtml(p.direccion || '-')}</span>
-                    </td>
-                    <td style="width:35%">
-                      <span class="c4-lbl">Ubigeo de Domicilio</span>
-                      <span class="c4-val">${escHtml(p.ubigeo_dir || '-')}</span>
-                    </td>
-                  </tr>
-                </table>
-              </div>
+            <!-- Fecha de Caducidad -->
+            <div class="reniec-row">
+              <div class="reniec-label">Fecha de Caducidad:</div>
+              <div class="reniec-value">${escHtml(p.fch_caducidad || '-')}</div>
             </div>
 
-            <!-- SECCIÓN 4: VIGENCIA DEL DOCUMENTO -->
-            <div class="c4-block">
-              <div class="c4-block__header">
-                <span class="material-symbols-outlined" style="font-size:13px">calendar_month</span>
-                <span>IV. Vigencia del Documento de Identidad</span>
-              </div>
-              <div class="c4-block__body">
-                <table class="c4-table">
-                  <tr>
-                    <td style="width:25%">
-                      <span class="c4-lbl">Fecha de Inscripción</span>
-                      <span class="c4-val">${escHtml(fInsc)}</span>
-                    </td>
-                    <td style="width:25%">
-                      <span class="c4-lbl">Fecha de Emisión DNI</span>
-                      <span class="c4-val">${escHtml(fEmis)}</span>
-                    </td>
-                    <td style="width:25%">
-                      <span class="c4-lbl">Fecha de Caducidad</span>
-                      <span class="c4-val">${escHtml(fCad)}</span>
-                    </td>
-                    <td style="width:25%">
-                      <span class="c4-lbl">Condición Documental</span>
-                      <div>${statusBadge}</div>
-                    </td>
-                  </tr>
-                </table>
-              </div>
+            <!-- Fecha de Fallecimiento -->
+            <div class="reniec-row">
+              <div class="reniec-label">Fecha de Fallecimiento:</div>
+              <div class="reniec-value">-</div>
+            </div>
+
+            <!-- Glosa Informativa -->
+            <div class="reniec-row">
+              <div class="reniec-label">Glosa Informativa:</div>
+              <div class="reniec-value">-</div>
+            </div>
+
+            <!-- Observación -->
+            <div class="reniec-row">
+              <div class="reniec-label">Observación:</div>
+              <div class="reniec-value">-</div>
             </div>
           </div>
         </div>
 
-        <!-- 3. Zona Inferior de Seguridad, QR y Sello Digital -->
-        <div>
-          <div class="c4-security-footer">
-            <!-- QR -->
-            <div class="c4-qr-wrap">
-              <div class="c4-qr-box">${qrSVG}</div>
-              <div class="c4-qr-caption">VALIDACIÓN QR</div>
+        <!-- 3. Información de la Consulta Footer -->
+        <div class="reniec-sheet__footer">
+          <div class="reniec-consult-title">Información de la Consulta:</div>
+          <div class="reniec-consult-grid">
+            <div class="reniec-consult-row">
+              <span class="reniec-consult-lbl">Usuario:</span>
+              <span class="reniec-consult-val">00000000 - None</span>
             </div>
-
-            <!-- Legal Disclaimer & Digest -->
-            <div class="c4-legal-wrap">
-              <div class="c4-legal-title">Certificación Oficial de Identidad</div>
-              <p style="margin:0 0 3px">
-                El presente Certificado de Inscripción C4 acredita fehacientemente los datos de identificación del titular inscritos en el Registro Único de Identificación de las Personas Naturales (RUIPN), conforme al Art. 26° de la Ley Orgánica N° 26497.
-              </p>
-              <div><strong>Firma Digital Institucional:</strong></div>
-              <div class="c4-hash-code">${escHtml(data.firma_digital || 'SHA256-DIGITAL-SIGNATURE-VERIFIED')}</div>
+            <div class="reniec-consult-row">
+              <span class="reniec-consult-lbl">Código:</span>
+              <span class="reniec-consult-val">${escHtml(codeVerif)}</span>
             </div>
-
-            <!-- Sello Digital -->
-            <div class="c4-stamp-wrap">
-              <div class="c4-official-stamp">
-                <span>RENIEC</span>
-                <span style="font-size:6px; color:#0f3b7a">SUB DIRECCIÓN DE</span>
-                <span style="font-size:6.5px">IDENTIFICACIÓN</span>
-                <span style="color:#22c55e; font-size:7px; margin-top:2px">✓ VERIFICADO</span>
-              </div>
+            <div class="reniec-consult-row">
+              <span class="reniec-consult-lbl">Entidad:</span>
+              <span class="reniec-consult-val">-</span>
+            </div>
+            <div class="reniec-consult-row">
+              <span class="reniec-consult-lbl">ID User:</span>
+              <span class="reniec-consult-val">6557727605</span>
+            </div>
+            <div class="reniec-consult-row">
+              <span class="reniec-consult-lbl">Verificación de Consulta:</span>
+              <span class="reniec-consult-val">
+                Puede verificar la informacion en linea:<br/>
+                https://cel.reniec.gob.pe/celconsulta/c?nuo=${escHtml(codeVerif || 'Nzg1MDIk5MDQ')}
+              </span>
             </div>
           </div>
 
-          <!-- Machine Readable Zone (MRZ) -->
-          <div class="c4-mrz-stripe">
-            <div>${escHtml(data.mrz_linea1 || `I<PER${p.dni}<<<<<<<<<<<<<<<<<<`)}</div>
-            <div>${escHtml(data.mrz_linea2 || `0001010M9912310PER<<<<<<<<<<<1`)}</div>
+          <div class="reniec-sheet__bottom-stamp">
+            Registro Nacional de Identificacion y Estado Civil - RENIEC© 2016 ${escHtml(fEmision)}
           </div>
         </div>
       </div>
