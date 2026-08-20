@@ -277,6 +277,11 @@
       const dot = g === 'M' ? 'status-dot--male' : g === 'F' ? 'status-dot--female' : 'status-dot--neutral';
       const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-item--active' : '';
 
+      // Inline detail summary for mobile
+      const fechaNac = p.fecha_nac ? `${escHtml(p.fecha_nac)} (${p.edad_anios || '-'} años)` : '-';
+      const padres = [p.padre ? `P: ${p.padre}` : '', p.madre ? `M: ${p.madre}` : ''].filter(Boolean).join(' · ') || 'No registrados';
+      const ubigeoDir = p.ubigeo_dir || p.ubigeo_nac || '-';
+
       html += `<div class="result-item slide-up stagger-${Math.min(i + 1, 8)}${active}" data-index="${i}">
         <div class="result-item__inner">
           <div class="result-item__avatar">
@@ -292,15 +297,78 @@
               ${p.est_civil ? `<span>&middot; ${escHtml(p.est_civil)}</span>` : ''}
             </div>
           </div>
-          <span class="material-symbols-outlined" style="font-size:18px;color:var(--text-6)">chevron_right</span>
+          <span class="material-symbols-outlined result-item__chevron">chevron_right</span>
         </div>
         ${p.direccion ? `<p class="result-item__address"><span class="material-symbols-outlined">location_on</span>${escHtml(p.direccion)}</p>` : ''}
+        
+        <!-- Mobile Inline Expandable Detail -->
+        <div class="result-item__inline-detail">
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-3);">
+            <div><strong style="color:var(--text-4)">Nacimiento:</strong> ${fechaNac}</div>
+            <div><strong style="color:var(--text-4)">Padres:</strong> ${escHtml(padres)}</div>
+            <div><strong style="color:var(--text-4)">Ubigeo:</strong> ${escHtml(ubigeoDir)}</div>
+          </div>
+          <div class="inline-actions-grid">
+            <button class="btn-inline-action btn-inline-action--primary" data-inline-action="tree" data-dni="${escHtml(p.dni)}">
+              <span class="material-symbols-outlined" style="font-size:15px">account_tree</span>
+              <span>Árbol</span>
+            </button>
+            <button class="btn-inline-action btn-inline-action--c4" data-inline-action="c4" data-dni="${escHtml(p.dni)}">
+              <span class="material-symbols-outlined" style="font-size:15px">print</span>
+              <span>C4</span>
+            </button>
+            <button class="btn-inline-action" data-inline-action="copy" data-index="${i}">
+              <span class="material-symbols-outlined" style="font-size:15px">content_copy</span>
+              <span>Copiar</span>
+            </button>
+          </div>
+        </div>
       </div>`;
     });
 
     resultsList.innerHTML = html;
     resultsList.querySelectorAll('.result-item').forEach((el, i) => {
-      el.addEventListener('click', () => showDetail(data[i], i));
+      el.addEventListener('click', (e) => {
+        const actionBtn = e.target.closest('[data-inline-action]');
+        if (actionBtn) {
+          const action = actionBtn.getAttribute('data-inline-action');
+          const dni = actionBtn.getAttribute('data-dni');
+          if (action === 'tree') {
+            openTreeModal(dni);
+          } else if (action === 'c4') {
+            openC4Modal(dni);
+          } else if (action === 'copy') {
+            const p = data[i];
+            const fullSummary = `DATOS DE IDENTIFICACIÓN (DNI)\n` +
+              `────────────────────────────────────────\n` +
+              `DNI: ${p.dni || '-'}\n` +
+              `NOMBRES: ${p.nombres || '-'}\n` +
+              `APELLIDOS: ${p.ap_pat || '-'} ${p.ap_mat || '-'}\n` +
+              `FECHA NAC: ${p.fecha_nac || '-'}\n` +
+              `DIRECCIÓN: ${p.direccion || '-'}\n` +
+              `UBIGEO: ${p.ubigeo_dir || '-'}`;
+            navigator.clipboard.writeText(fullSummary).then(() => toast('Ficha copiada', 'success'));
+          }
+          return;
+        }
+
+        // On mobile (<= 768px): toggle inline expansion smoothly without intrusive modal popups
+        if (window.innerWidth <= 768) {
+          const isExpanded = el.classList.contains('result-item--expanded');
+          resultsList.querySelectorAll('.result-item').forEach(item => item.classList.remove('result-item--expanded'));
+          if (!isExpanded) {
+            el.classList.add('result-item--expanded');
+            personaSeleccionada = data[i];
+            setTimeout(() => {
+              el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 80);
+          }
+          return;
+        }
+
+        // On desktop (> 768px): normal showDetail
+        showDetail(data[i], i);
+      });
     });
   }
 
@@ -1398,10 +1466,6 @@
       detailContent.style.transform = 'translateX(0)';
       bindDetailEvents(detailContent, p);
     }, 80);
-
-    if (window.innerWidth < 769) {
-      openMobileSheet(html, p);
-    }
   }
 
   /* ── Mobile sheet ────────────────────────────────────────── */

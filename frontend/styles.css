@@ -511,6 +511,73 @@ img, svg { display: block; max-width: 100%; }
 }
 .result-item__address .material-symbols-outlined { font-size: 15px; color: var(--text-5); flex-shrink: 0; margin-top: 1px; }
 
+/* ── Inline Expandable Card for Fluid Mobile Experience ──────────────── */
+.result-item__chevron {
+  font-size: 20px;
+  color: var(--text-5);
+  transition: transform 0.25s var(--ease-smooth);
+  flex-shrink: 0;
+}
+.result-item--expanded .result-item__chevron {
+  transform: rotate(90deg);
+  color: var(--accent-light);
+}
+
+.result-item__inline-detail {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+.result-item--expanded .result-item__inline-detail {
+  max-height: 1400px;
+  opacity: 1;
+  transform: translateY(0);
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  pointer-events: auto;
+}
+
+/* Mobile Quick Action Pill Grid */
+.inline-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.btn-inline-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border-radius: var(--radius-md);
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+.btn-inline-action:active {
+  transform: scale(0.96);
+}
+.btn-inline-action--primary {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.25));
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #c084fc;
+}
+.btn-inline-action--c4 {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.25), rgba(56, 189, 248, 0.15));
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
 /* ── 11. Detail Panel (Desktop) — Slide-in transitions ───────────────── */
 .detail-panel {
   width: var(--detail-w); flex-shrink: 0;
@@ -1157,9 +1224,18 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
 
 /* ── 19. Comprehensive Mobile Responsive System ──────────────────────── */
 @media (max-width: 768px) {
+  /* Performance: Disable GPU heavy background blobs and enable smooth touch */
+  .bg-blob {
+    display: none !important;
+  }
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   /* Layout & Safe Area */
   body {
     padding-bottom: env(safe-area-inset-bottom, 16px);
+    overscroll-behavior-y: contain;
   }
   .main {
     padding: 0 12px 60px;
@@ -1720,9 +1796,6 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
 .tree-node--sm {
   min-width: 110px; max-width: 135px;
   padding: 8px 10px;
-}
-  margin-bottom: 4px;
-  color: var(--text-4);
 }
 .tree-node__name {
   font-size: 11px;
