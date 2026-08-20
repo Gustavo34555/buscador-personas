@@ -127,38 +127,211 @@ RANK_PRECISO = f"""
     LIMIT :limit
 """
 
-BUSCAR_POR_NOMBRE_EXACTO = f"""
+# ═══════════════════════════════════════════════════════════════════════
+# ÁRBOL GENEALÓGICO — Queries de alta precisión y velocidad indexada
+# ═══════════════════════════════════════════════════════════════════════
+
+# 1. Buscar padre: candidatos por search_vector (GIN) + re-ranking multi-factor
+BUSCAR_PADRE_RANKED = f"""
+    WITH candidatos AS (
+        SELECT p.*
+        FROM personas p
+        WHERE p.search_vector @@ to_tsquery('simple', :tsq)
+        LIMIT 60
+    )
     SELECT
         dni, ap_pat, ap_mat, nombres, padre, madre, fecha_nac,
+        ubigeo_nac, ubigeo_dir,
         {SEXO_EXPR} AS sexo, est_civil,
-        {EDAD_COLS}
-    FROM personas
-    WHERE {NC_EXPR} = :nombre_completo
-    LIMIT 5
+        {EDAD_COLS},
+        (
+            -- Coincidencia exacta de nombre de pila del padre
+            CASE WHEN lower(nombres) = :padre_nombre THEN 10000
+                 WHEN lower(nombres) LIKE :padre_nombre || ' %' THEN 8500
+                 WHEN lower(nombres) LIKE '% ' || :padre_nombre THEN 7000
+                 WHEN lower(nombres) LIKE '% ' || :padre_nombre || ' %' THEN 6000
+                 ELSE 0
+            END
+            -- Apellido paterno coincide con el del hijo (herencia directa)
+            + CASE WHEN lower(ap_pat) = :hijo_ap_pat THEN 5000 ELSE 0 END
+            -- Ubigeo nacimiento: distrito exacto > provincia > departamento
+            + CASE WHEN :hijo_ubigeo_nac != '' AND ubigeo_nac = :hijo_ubigeo_nac THEN 4000
+                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 2500
+                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(ubigeo_nac, 1, 2) = SUBSTRING(:hijo_ubigeo_nac, 1, 2) THEN 1200
+                   ELSE 0
+            END
+            -- Ubigeo domicilio similar
+            + CASE WHEN :hijo_ubigeo_dir != '' AND ubigeo_dir = :hijo_ubigeo_dir THEN 1500
+                   WHEN :hijo_ubigeo_dir != '' AND SPLIT_PART(ubigeo_dir, '-', 1) = SPLIT_PART(:hijo_ubigeo_dir, '-', 1) THEN 600
+                   ELSE 0
+            END
+            -- Edad biológicamente coherente: padre 15-65 años mayor que el hijo
+            + CASE WHEN fecha_nac IS NOT NULL AND CAST(:hijo_fecha_nac AS date) IS NOT NULL
+                        AND EXTRACT(YEAR FROM age(CAST(:hijo_fecha_nac AS date), fecha_nac)) BETWEEN 15 AND 65
+                   THEN 2500
+                   WHEN fecha_nac IS NOT NULL AND CAST(:hijo_fecha_nac AS date) IS NOT NULL
+                        AND EXTRACT(YEAR FROM age(CAST(:hijo_fecha_nac AS date), fecha_nac)) BETWEEN 12 AND 75
+                   THEN 1000
+                   ELSE 0
+            END
+            -- Sexo masculino
+            + CASE WHEN sexo::text = '1' THEN 800 ELSE 0 END
+        ) AS score
+    FROM candidatos
+    WHERE lower(ap_pat) = :hijo_ap_pat
+    ORDER BY score DESC
+    LIMIT 1
 """
 
-BUSCAR_HIJOS = f"""
+# 2. Buscar madre: candidatos por search_vector (GIN) + re-ranking multi-factor
+BUSCAR_MADRE_RANKED = f"""
+    WITH candidatos AS (
+        SELECT p.*
+        FROM personas p
+        WHERE p.search_vector @@ to_tsquery('simple', :tsq)
+        LIMIT 60
+    )
     SELECT
         dni, ap_pat, ap_mat, nombres, padre, madre, fecha_nac,
+        ubigeo_nac, ubigeo_dir,
         {SEXO_EXPR} AS sexo, est_civil,
-        {EDAD_COLS}
-    FROM personas
-    WHERE padre = :nombre_completo OR madre = :nombre_completo
-    LIMIT 10
+        {EDAD_COLS},
+        (
+            -- Coincidencia exacta de nombre de pila de la madre
+            CASE WHEN lower(nombres) = :madre_nombre THEN 10000
+                 WHEN lower(nombres) LIKE :madre_nombre || ' %' THEN 8500
+                 WHEN lower(nombres) LIKE '% ' || :madre_nombre THEN 7000
+                 WHEN lower(nombres) LIKE '% ' || :madre_nombre || ' %' THEN 6000
+                 ELSE 0
+            END
+            -- Apellido paterno de la madre = apellido materno del hijo
+            + CASE WHEN lower(ap_pat) = :hijo_ap_mat THEN 5000 ELSE 0 END
+            -- Ubigeo nacimiento: distrito exacto > provincia > departamento
+            + CASE WHEN :hijo_ubigeo_nac != '' AND ubigeo_nac = :hijo_ubigeo_nac THEN 4000
+                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 2500
+                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(ubigeo_nac, 1, 2) = SUBSTRING(:hijo_ubigeo_nac, 1, 2) THEN 1200
+                   ELSE 0
+            END
+            -- Ubigeo domicilio similar
+            + CASE WHEN :hijo_ubigeo_dir != '' AND ubigeo_dir = :hijo_ubigeo_dir THEN 1500
+                   WHEN :hijo_ubigeo_dir != '' AND SPLIT_PART(ubigeo_dir, '-', 1) = SPLIT_PART(:hijo_ubigeo_dir, '-', 1) THEN 600
+                   ELSE 0
+            END
+            -- Edad biológicamente coherente: madre 14-55 años mayor que el hijo
+            + CASE WHEN fecha_nac IS NOT NULL AND CAST(:hijo_fecha_nac AS date) IS NOT NULL
+                        AND EXTRACT(YEAR FROM age(CAST(:hijo_fecha_nac AS date), fecha_nac)) BETWEEN 14 AND 55
+                   THEN 2500
+                   WHEN fecha_nac IS NOT NULL AND CAST(:hijo_fecha_nac AS date) IS NOT NULL
+                        AND EXTRACT(YEAR FROM age(CAST(:hijo_fecha_nac AS date), fecha_nac)) BETWEEN 12 AND 65
+                   THEN 1000
+                   ELSE 0
+            END
+            -- Sexo femenino
+            + CASE WHEN sexo::text = '2' THEN 800 ELSE 0 END
+        ) AS score
+    FROM candidatos
+    WHERE lower(ap_pat) = :hijo_ap_mat
+    ORDER BY score DESC
+    LIMIT 1
 """
 
-BUSCAR_HERMANOS = f"""
+# 3. Buscar hermanos: candidatos por search_vector (apellidos paterno y materno) + re-ranking
+BUSCAR_HERMANOS_RANKED = f"""
+    WITH candidatos AS (
+        SELECT p.*
+        FROM personas p
+        WHERE p.search_vector @@ to_tsquery('simple', :tsq)
+        LIMIT 100
+    )
     SELECT
         dni, ap_pat, ap_mat, nombres, padre, madre, fecha_nac,
+        ubigeo_nac, ubigeo_dir,
         {SEXO_EXPR} AS sexo, est_civil,
-        {EDAD_COLS}
-    FROM personas
+        {EDAD_COLS},
+        (
+            -- Ambos padres coinciden exactamente (hermano de padre y madre)
+            CASE WHEN :padre != '' AND lower(padre) = :padre
+                      AND :madre != '' AND lower(madre) = :madre THEN 12000
+                 WHEN :padre != '' AND lower(padre) = :padre THEN 6000
+                 WHEN :madre != '' AND lower(madre) = :madre THEN 6000
+                 ELSE 0
+            END
+            -- Comparten apellido paterno
+            + CASE WHEN :hijo_ap_pat != '' AND lower(ap_pat) = :hijo_ap_pat THEN 4000 ELSE 0 END
+            -- Comparten apellido materno
+            + CASE WHEN :hijo_ap_mat != '' AND lower(ap_mat) = :hijo_ap_mat THEN 3500 ELSE 0 END
+            -- Ubigeo nacimiento: distrito > provincia > departamento
+            + CASE WHEN :hijo_ubigeo_nac != '' AND ubigeo_nac = :hijo_ubigeo_nac THEN 3000
+                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 1800
+                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(ubigeo_nac, 1, 2) = SUBSTRING(:hijo_ubigeo_nac, 1, 2) THEN 800
+                   ELSE 0
+            END
+            -- Ubigeo domicilio similar
+            + CASE WHEN :hijo_ubigeo_dir != '' AND ubigeo_dir = :hijo_ubigeo_dir THEN 1200 ELSE 0 END
+            -- Cercanía de edad (< 25 años)
+            + CASE WHEN fecha_nac IS NOT NULL AND CAST(:hijo_fecha_nac AS date) IS NOT NULL
+                        AND ABS(EXTRACT(YEAR FROM age(fecha_nac, CAST(:hijo_fecha_nac AS date)))) < 25
+                   THEN 1500 ELSE 0
+            END
+        ) AS score
+    FROM candidatos
     WHERE dni != :dni_excluir
       AND (
-          (padre != '' AND padre IS NOT NULL AND padre = :padre)
-          OR (madre != '' AND madre IS NOT NULL AND madre = :madre)
+          (:padre != '' AND lower(padre) = :padre)
+          OR (:madre != '' AND lower(madre) = :madre)
+          OR (:hijo_ap_pat != '' AND lower(ap_pat) = :hijo_ap_pat AND :hijo_ap_mat != '' AND lower(ap_mat) = :hijo_ap_mat)
       )
-    LIMIT 10
+    ORDER BY score DESC
+    LIMIT 15
+"""
+
+# 4. Buscar hijos: candidatos por search_vector (apellido) + re-ranking
+BUSCAR_HIJOS_RANKED = f"""
+    WITH candidatos AS (
+        SELECT p.*
+        FROM personas p
+        WHERE p.search_vector @@ to_tsquery('simple', :tsq)
+        LIMIT 100
+    )
+    SELECT
+        dni, ap_pat, ap_mat, nombres, padre, madre, fecha_nac,
+        ubigeo_nac, ubigeo_dir,
+        {SEXO_EXPR} AS sexo, est_civil,
+        {EDAD_COLS},
+        (
+            -- El nombre del progenitor coincide exactamente en el campo padre o madre
+            CASE WHEN :es_padre AND lower(padre) = :progenitor_nombre THEN 8000
+                 WHEN NOT :es_padre AND lower(madre) = :progenitor_nombre THEN 8000
+                 WHEN :es_padre AND lower(padre) LIKE :progenitor_nombre || ' %' THEN 6000
+                 WHEN NOT :es_padre AND lower(madre) LIKE :progenitor_nombre || ' %' THEN 6000
+                 ELSE 0
+            END
+            -- Cónyuge coincide si se conoce
+            + CASE WHEN :conyuge_nombre != '' AND (:es_padre AND lower(madre) = :conyuge_nombre OR NOT :es_padre AND lower(padre) = :conyuge_nombre) THEN 5000 ELSE 0 END
+            -- Herencia de apellido paterno / materno
+            + CASE WHEN :es_padre AND lower(ap_pat) = :progenitor_ap_pat THEN 4000
+                   WHEN NOT :es_padre AND lower(ap_mat) = :progenitor_ap_pat THEN 4000
+                   ELSE 0
+            END
+            -- Ubigeo nacimiento
+            + CASE WHEN :progenitor_ubigeo != '' AND ubigeo_nac = :progenitor_ubigeo THEN 3000
+                   WHEN :progenitor_ubigeo != '' AND SUBSTRING(ubigeo_nac, 1, 4) = SUBSTRING(:progenitor_ubigeo, 1, 4) THEN 1500
+                   WHEN :progenitor_ubigeo != '' AND SUBSTRING(ubigeo_nac, 1, 2) = SUBSTRING(:progenitor_ubigeo, 1, 2) THEN 600
+                   ELSE 0
+            END
+            -- Edad coherente (el hijo es entre 15 y 60 años menor)
+            + CASE WHEN fecha_nac IS NOT NULL AND CAST(:progenitor_fecha_nac AS date) IS NOT NULL
+                        AND EXTRACT(YEAR FROM age(fecha_nac, CAST(:progenitor_fecha_nac AS date))) BETWEEN 15 AND 60
+                   THEN 2000 ELSE 0
+            END
+        ) AS score
+    FROM candidatos
+    WHERE (
+        (:es_padre AND (lower(padre) LIKE '%' || :progenitor_nombre || '%' OR lower(ap_pat) = :progenitor_ap_pat))
+        OR (NOT :es_padre AND (lower(madre) LIKE '%' || :progenitor_nombre || '%' OR lower(ap_mat) = :progenitor_ap_pat))
+    )
+    ORDER BY score DESC
+    LIMIT 15
 """
 
 RUC_POR_DNI = """

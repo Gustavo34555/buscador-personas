@@ -1362,6 +1362,7 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 .tree-node__meta {
@@ -1376,6 +1377,16 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   letter-spacing: 1.2px;
   color: var(--text-6);
   margin-bottom: 4px;
+}
+.tree-node__ubigeo {
+  font-size: 8px;
+  color: var(--text-6);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: center;
+  line-height: 1.2;
 }
 
 /* ── Generation Labels ───────────────────────────────────────────── */

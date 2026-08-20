@@ -98,6 +98,8 @@ class ArbolNodo(BaseModel):
     est_civil: str | None = None
     padre: str | None = None
     madre: str | None = None
+    ubigeo_nac: str | None = None
+    ubigeo_dir: str | None = None
     encontrado: bool = False
 
     model_config = {"from_attributes": True}

@@ -629,12 +629,14 @@
     const relation = opts.relation ? `<p class="tree-node__relation">${escHtml(opts.relation)}</p>` : '';
     const meta = nodo.dni ? `DNI ${escHtml(nodo.dni)}` : (nodo.encontrado ? '' : 'No encontrado');
     const age = nodo.edad_anios ? ` · ${nodo.edad_anios}a` : '';
+    const ubigeo = nodo.ubigeo_dir && !opts.small ? `<p class="tree-node__ubigeo"><span class="material-symbols-outlined" style="font-size:10px">location_on</span>${escHtml(nodo.ubigeo_dir)}</p>` : '';
 
     return `<div class="tree-node ${gClass} ${mainClass} ${ghostClass} ${smClass}" ${clickAttr} title="${escHtml(n)}">
       ${relation}
       <span class="material-symbols-outlined tree-node__icon">${icon}</span>
       <p class="tree-node__name">${escHtml(n)}</p>
       <p class="tree-node__meta">${meta}${age}</p>
+      ${ubigeo}
     </div>`;
   }
 

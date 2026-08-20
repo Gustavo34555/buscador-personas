@@ -159,6 +159,8 @@ def _fila_a_nodo(fila):
         "est_civil": fila.get("est_civil"),
         "padre": fila.get("padre"),
         "madre": fila.get("madre"),
+        "ubigeo_nac": fila.get("ubigeo_nac"),
+        "ubigeo_dir": fila.get("ubigeo_dir"),
         "encontrado": True,
     }
 
@@ -170,7 +172,7 @@ def _nodo_solo_nombre(nombre_texto, sexo_hint=None):
     partes = nombre_texto.strip().split()
     return {
         "dni": None,
-        "nombres": " ".join(partes[:-2]) if len(partes) > 2 else (partes[0] if partes else None),
+        "nombres": " ".join(partes[:-2]) if len(partes) > 2 else (partes[0] if partes else nombre_texto),
         "ap_pat": partes[-2] if len(partes) >= 2 else None,
         "ap_mat": partes[-1] if len(partes) >= 2 else None,
         "sexo": sexo_hint,
@@ -179,16 +181,94 @@ def _nodo_solo_nombre(nombre_texto, sexo_hint=None):
         "est_civil": None,
         "padre": None,
         "madre": None,
+        "ubigeo_nac": None,
+        "ubigeo_dir": None,
         "encontrado": False,
     }
 
 
+def _build_tsq(*words) -> str:
+    """Construye un tsquery seguro uniendo palabras con &."""
+    clean = [_sanitize_word(w) for w in words if w and _sanitize_word(w)]
+    return " & ".join(clean) if clean else ""
+
+
+def _buscar_padre(conn, padre_nombre, hijo_fila):
+    """Busca al padre usando ranking multi-factor con filtro GIN."""
+    from app.sql.queries import BUSCAR_PADRE_RANKED
+
+    padre_nombre_clean = padre_nombre.strip().lower()
+    if not padre_nombre_clean:
+        return None
+
+    hijo_ap_pat = (hijo_fila.get("ap_pat") or "").lower()
+    primer_nombre = padre_nombre_clean.split()[0] if padre_nombre_clean.split() else ""
+    tsq = _build_tsq(primer_nombre, hijo_ap_pat)
+    if not tsq:
+        return None
+
+    fecha_nac = hijo_fila.get("fecha_nac")
+    params = {
+        "tsq": tsq,
+        "padre_nombre": padre_nombre_clean,
+        "hijo_ap_pat": hijo_ap_pat,
+        "hijo_ubigeo_nac": (hijo_fila.get("ubigeo_nac") or ""),
+        "hijo_ubigeo_dir": (hijo_fila.get("ubigeo_dir") or ""),
+        "hijo_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
+    }
+
+    try:
+        fila = conn.execute(text(BUSCAR_PADRE_RANKED), params).mappings().first()
+        return _fila_a_nodo(fila) if fila else None
+    except Exception:
+        return None
+
+
+def _buscar_madre(conn, madre_nombre, hijo_fila):
+    """Busca a la madre usando ranking multi-factor con filtro GIN."""
+    from app.sql.queries import BUSCAR_MADRE_RANKED
+
+    madre_nombre_clean = madre_nombre.strip().lower()
+    if not madre_nombre_clean:
+        return None
+
+    hijo_ap_mat = (hijo_fila.get("ap_mat") or "").lower()
+    primer_nombre = madre_nombre_clean.split()[0] if madre_nombre_clean.split() else ""
+    tsq = _build_tsq(primer_nombre, hijo_ap_mat)
+    if not tsq:
+        return None
+
+    fecha_nac = hijo_fila.get("fecha_nac")
+    params = {
+        "tsq": tsq,
+        "madre_nombre": madre_nombre_clean,
+        "hijo_ap_mat": hijo_ap_mat,
+        "hijo_ubigeo_nac": (hijo_fila.get("ubigeo_nac") or ""),
+        "hijo_ubigeo_dir": (hijo_fila.get("ubigeo_dir") or ""),
+        "hijo_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
+    }
+
+    try:
+        fila = conn.execute(text(BUSCAR_MADRE_RANKED), params).mappings().first()
+        return _fila_a_nodo(fila) if fila else None
+    except Exception:
+        return None
+
+
 def construir_arbol(dni: str):
-    """Construye el árbol genealógico completo de una persona."""
+    """Construye el árbol genealógico con ranking multi-factor y aceleración GIN.
+
+    Factores de correlación:
+    - Nombre de pila del padre/madre
+    - Herencia de apellidos (ap_pat del padre → ap_pat del hijo, ap_pat de madre → ap_mat del hijo)
+    - Ubigeo de nacimiento (distrito > provincia > departamento)
+    - Ubigeo de domicilio
+    - Rango de edad razonable entre generaciones
+    - Sexo del candidato
+    """
     from app.sql.queries import (
-        BUSCAR_HERMANOS,
-        BUSCAR_HIJOS,
-        BUSCAR_POR_NOMBRE_EXACTO,
+        BUSCAR_HERMANOS_RANKED,
+        BUSCAR_HIJOS_RANKED,
         PERSONA_POR_DNI,
     )
 
@@ -199,7 +279,6 @@ def construir_arbol(dni: str):
             return None
 
         persona_nodo = _fila_a_nodo(persona_fila)
-        nombre_persona = _nombre_completo(persona_fila)
 
         resultado = {
             "persona": persona_nodo,
@@ -216,76 +295,93 @@ def construir_arbol(dni: str):
         # 2. Buscar padre
         padre_texto = persona_fila.get("padre")
         if padre_texto and padre_texto.strip():
-            padre_filas = conn.execute(
-                text(BUSCAR_POR_NOMBRE_EXACTO),
-                {"nombre_completo": padre_texto.strip().lower()},
-            ).mappings().all()
-            if padre_filas:
-                resultado["padre"] = _fila_a_nodo(padre_filas[0])
+            padre_nodo = _buscar_padre(conn, padre_texto, persona_fila)
+            if padre_nodo:
+                resultado["padre"] = padre_nodo
                 # Abuelos paternos
-                abuelo_p = padre_filas[0].get("padre")
-                abuela_p = padre_filas[0].get("madre")
-                if abuelo_p and abuelo_p.strip():
-                    ab_filas = conn.execute(
-                        text(BUSCAR_POR_NOMBRE_EXACTO),
-                        {"nombre_completo": abuelo_p.strip().lower()},
-                    ).mappings().all()
-                    resultado["abuelo_paterno"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuelo_p, "Masculino")
-                if abuela_p and abuela_p.strip():
-                    ab_filas = conn.execute(
-                        text(BUSCAR_POR_NOMBRE_EXACTO),
-                        {"nombre_completo": abuela_p.strip().lower()},
-                    ).mappings().all()
-                    resultado["abuela_paterna"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuela_p, "Femenino")
+                abuelo_p_nombre = padre_nodo.get("padre")
+                abuela_p_nombre = padre_nodo.get("madre")
+                if abuelo_p_nombre and abuelo_p_nombre.strip():
+                    abuelo = _buscar_padre(conn, abuelo_p_nombre, padre_nodo)
+                    resultado["abuelo_paterno"] = abuelo or _nodo_solo_nombre(abuelo_p_nombre, "Masculino")
+                if abuela_p_nombre and abuela_p_nombre.strip():
+                    abuela = _buscar_madre(conn, abuela_p_nombre, padre_nodo)
+                    resultado["abuela_paterna"] = abuela or _nodo_solo_nombre(abuela_p_nombre, "Femenino")
             else:
                 resultado["padre"] = _nodo_solo_nombre(padre_texto, "Masculino")
 
         # 3. Buscar madre
         madre_texto = persona_fila.get("madre")
         if madre_texto and madre_texto.strip():
-            madre_filas = conn.execute(
-                text(BUSCAR_POR_NOMBRE_EXACTO),
-                {"nombre_completo": madre_texto.strip().lower()},
-            ).mappings().all()
-            if madre_filas:
-                resultado["madre"] = _fila_a_nodo(madre_filas[0])
+            madre_nodo = _buscar_madre(conn, madre_texto, persona_fila)
+            if madre_nodo:
+                resultado["madre"] = madre_nodo
                 # Abuelos maternos
-                abuelo_m = madre_filas[0].get("padre")
-                abuela_m = madre_filas[0].get("madre")
-                if abuelo_m and abuelo_m.strip():
-                    ab_filas = conn.execute(
-                        text(BUSCAR_POR_NOMBRE_EXACTO),
-                        {"nombre_completo": abuelo_m.strip().lower()},
-                    ).mappings().all()
-                    resultado["abuelo_materno"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuelo_m, "Masculino")
-                if abuela_m and abuela_m.strip():
-                    ab_filas = conn.execute(
-                        text(BUSCAR_POR_NOMBRE_EXACTO),
-                        {"nombre_completo": abuela_m.strip().lower()},
-                    ).mappings().all()
-                    resultado["abuela_materna"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuela_m, "Femenino")
+                abuelo_m_nombre = madre_nodo.get("padre")
+                abuela_m_nombre = madre_nodo.get("madre")
+                if abuelo_m_nombre and abuelo_m_nombre.strip():
+                    abuelo = _buscar_padre(conn, abuelo_m_nombre, madre_nodo)
+                    resultado["abuelo_materno"] = abuelo or _nodo_solo_nombre(abuelo_m_nombre, "Masculino")
+                if abuela_m_nombre and abuela_m_nombre.strip():
+                    abuela = _buscar_madre(conn, abuela_m_nombre, madre_nodo)
+                    resultado["abuela_materna"] = abuela or _nodo_solo_nombre(abuela_m_nombre, "Femenino")
             else:
                 resultado["madre"] = _nodo_solo_nombre(madre_texto, "Femenino")
 
-        # 4. Buscar hermanos (mismos padres)
-        if (padre_texto and padre_texto.strip()) or (madre_texto and madre_texto.strip()):
+        # 4. Buscar hermanos (mismos padres + apellidos + ubigeo + edad cercana)
+        fecha_nac = persona_fila.get("fecha_nac")
+        ap_pat_hijo = (persona_fila.get("ap_pat") or "").lower()
+        ap_mat_hijo = (persona_fila.get("ap_mat") or "").lower()
+
+        tsq_hermanos = _build_tsq(ap_pat_hijo, ap_mat_hijo) or _build_tsq(ap_pat_hijo)
+        if tsq_hermanos:
             hermanos_filas = conn.execute(
-                text(BUSCAR_HERMANOS),
+                text(BUSCAR_HERMANOS_RANKED),
                 {
+                    "tsq": tsq_hermanos,
                     "dni_excluir": dni,
-                    "padre": (padre_texto or "").strip(),
-                    "madre": (madre_texto or "").strip(),
+                    "padre": (padre_texto or "").strip().lower(),
+                    "madre": (madre_texto or "").strip().lower(),
+                    "hijo_ap_pat": ap_pat_hijo,
+                    "hijo_ap_mat": ap_mat_hijo,
+                    "hijo_ubigeo_nac": (persona_fila.get("ubigeo_nac") or ""),
+                    "hijo_ubigeo_dir": (persona_fila.get("ubigeo_dir") or ""),
+                    "hijo_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
                 },
             ).mappings().all()
             resultado["hermanos"] = [_fila_a_nodo(h) for h in hermanos_filas]
 
         # 5. Buscar hijos
-        if nombre_persona:
+        nombres_persona = (persona_fila.get("nombres") or "").strip().lower()
+        ap_pat_persona = ap_pat_hijo
+        sexo_persona = str(persona_fila.get("sexo") or "")
+        es_padre = sexo_persona in ("1", "Masculino")
+
+        primer_nombre_persona = nombres_persona.split()[0] if nombres_persona.split() else ""
+        tsq_hijos = _build_tsq(ap_pat_persona)
+
+        conyuge_nombre = ""
+        if es_padre and madre_texto:
+            conyuge_nombre = madre_texto.strip().lower()
+        elif not es_padre and padre_texto:
+            conyuge_nombre = padre_texto.strip().lower()
+
+        if tsq_hijos and primer_nombre_persona:
             hijos_filas = conn.execute(
-                text(BUSCAR_HIJOS),
-                {"nombre_completo": nombre_persona},
+                text(BUSCAR_HIJOS_RANKED),
+                {
+                    "tsq": tsq_hijos,
+                    "progenitor_nombre": primer_nombre_persona,
+                    "conyuge_nombre": conyuge_nombre,
+                    "progenitor_ap_pat": ap_pat_persona,
+                    "es_padre": es_padre,
+                    "progenitor_ubigeo": (persona_fila.get("ubigeo_nac") or ""),
+                    "progenitor_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
+                },
             ).mappings().all()
             resultado["hijos"] = [_fila_a_nodo(h) for h in hijos_filas]
 
         return resultado
+
+
 
