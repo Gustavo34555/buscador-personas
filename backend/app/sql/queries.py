@@ -235,7 +235,7 @@ BUSCAR_MADRE_RANKED = f"""
     LIMIT 1
 """
 
-# 3. Buscar hermanos: candidatos por search_vector (apellidos paterno y materno) + re-ranking
+# 3. Buscar hermanos: compartir estrictamente el mismo padre (o madre si padre no existe) + apellidos
 BUSCAR_HERMANOS_RANKED = f"""
     WITH candidatos AS (
         SELECT p.*
@@ -249,17 +249,26 @@ BUSCAR_HERMANOS_RANKED = f"""
         {SEXO_EXPR} AS sexo, est_civil,
         {EDAD_COLS},
         (
-            -- Ambos padres coinciden exactamente (hermano de padre y madre)
-            CASE WHEN :padre != '' AND lower(padre) = :padre
-                      AND :madre != '' AND lower(madre) = :madre THEN 12000
-                 WHEN :padre != '' AND lower(padre) = :padre THEN 6000
-                 WHEN :madre != '' AND lower(madre) = :madre THEN 6000
+            -- Coincidencia exacta de padre (REQUISITO FUNDAMENTAL)
+            CASE WHEN :padre != '' AND lower(padre) = :padre THEN 10000
+                 WHEN :padre != '' AND lower(padre) LIKE :padre || ' %' THEN 8000
+                 WHEN :padre != '' AND lower(padre) LIKE '% ' || :padre THEN 7000
                  ELSE 0
             END
-            -- Comparten apellido paterno
-            + CASE WHEN :hijo_ap_pat != '' AND lower(ap_pat) = :hijo_ap_pat THEN 4000 ELSE 0 END
+            -- Ambos padres coinciden exactamente (hermano completo)
+            + CASE WHEN :padre != '' AND (lower(padre) = :padre OR lower(padre) LIKE :padre || ' %' OR lower(padre) LIKE '% ' || :padre)
+                        AND :madre != '' AND (lower(madre) = :madre OR lower(madre) LIKE :madre || ' %' OR lower(madre) LIKE '% ' || :madre)
+                   THEN 10000 ELSE 0
+            END
+            -- Coincidencia de madre
+            + CASE WHEN :madre != '' AND lower(madre) = :madre THEN 5000
+                   WHEN :madre != '' AND lower(madre) LIKE :madre || ' %' THEN 3500
+                   ELSE 0
+            END
+            -- Comparten apellido paterno (herencia del padre)
+            + CASE WHEN :hijo_ap_pat != '' AND lower(ap_pat) = :hijo_ap_pat THEN 5000 ELSE 0 END
             -- Comparten apellido materno
-            + CASE WHEN :hijo_ap_mat != '' AND lower(ap_mat) = :hijo_ap_mat THEN 3500 ELSE 0 END
+            + CASE WHEN :hijo_ap_mat != '' AND lower(ap_mat) = :hijo_ap_mat THEN 4000 ELSE 0 END
             -- Ubigeo nacimiento: distrito > provincia > departamento
             + CASE WHEN :hijo_ubigeo_nac != '' AND ubigeo_nac = :hijo_ubigeo_nac THEN 3000
                    WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 1800
@@ -277,9 +286,18 @@ BUSCAR_HERMANOS_RANKED = f"""
     FROM candidatos
     WHERE dni != :dni_excluir
       AND (
-          (:padre != '' AND lower(padre) = :padre)
-          OR (:madre != '' AND lower(madre) = :madre)
-          OR (:hijo_ap_pat != '' AND lower(ap_pat) = :hijo_ap_pat AND :hijo_ap_mat != '' AND lower(ap_mat) = :hijo_ap_mat)
+          -- Si el padre está registrado, el hermano DEBE tener el mismo padre y mismo apellido paterno
+          (:padre != '' AND lower(ap_pat) = :hijo_ap_pat AND (
+              lower(padre) = :padre
+              OR lower(padre) LIKE :padre || ' %'
+              OR lower(padre) LIKE '% ' || :padre
+          ))
+          -- O si no hay padre registrado, coincidir en madre y apellido materno
+          OR (:padre = '' AND :madre != '' AND lower(ap_mat) = :hijo_ap_mat AND (
+              lower(madre) = :madre
+              OR lower(madre) LIKE :madre || ' %'
+              OR lower(madre) LIKE '% ' || :madre
+          ))
       )
     ORDER BY score DESC
     LIMIT 15
