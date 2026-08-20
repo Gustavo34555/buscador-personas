@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
   <meta name="theme-color" content="#070709">
   <meta name="description" content="Buscador de personas por DNI o nombre completo. Consulta el padrón nacional de identificación de Perú con información personal, familiar y de RUC SUNAT.">
   <meta name="robots" content="noindex, nofollow">
@@ -206,7 +206,7 @@
         <div class="search-box">
           <span class="material-symbols-outlined search-box__icon">search</span>
           <div class="search-box__input-wrap">
-            <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." autocomplete="off" class="search-box__input" aria-label="Buscar persona">
+            <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." inputmode="numeric" pattern="[0-9]*" enterkeyhint="search" autocomplete="off" class="search-box__input" aria-label="Buscar persona">
             <button id="btn-clear-search" class="btn-clear-input" title="Borrar búsqueda" aria-label="Borrar texto">
               <span class="material-symbols-outlined">close</span>
             </button>

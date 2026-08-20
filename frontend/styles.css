@@ -1155,14 +1155,222 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   margin: 6mm;
 }
 
-/* ── 19. Responsive tweaks ───────────────────────────────────────────── */
+/* ── 19. Comprehensive Mobile Responsive System ──────────────────────── */
 @media (max-width: 768px) {
-  .detail-panel { display: none; }
-  .results-grid { display: block; }
-  .hero h1 { font-size: 28px; }
-  .search-box { padding: 6px 8px; }
-  .search-box__input { font-size: 15px; min-height: 44px; }
-  .mode-btn { padding: 0 10px; font-size: 11px; }
+  /* Layout & Safe Area */
+  body {
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+  }
+  .main {
+    padding: 0 12px 60px;
+    max-width: 100%;
+  }
+
+  /* Compact Mobile Header */
+  .header {
+    padding: 10px 14px;
+  }
+  .header__inner {
+    gap: 8px;
+  }
+  .header__title {
+    font-size: 15px;
+  }
+  .header__subtitle {
+    display: none;
+  }
+  .btn-quick-search {
+    padding: 6px 10px;
+    min-height: 36px;
+  }
+  .btn-quick-search__label,
+  .btn-quick-search kbd {
+    display: none;
+  }
+  .connection-status {
+    padding: 4px 8px;
+  }
+  .connection-status .status-label {
+    display: none;
+  }
+
+  /* Hero Section */
+  .hero {
+    padding: 20px 8px 16px;
+  }
+  .hero h1 {
+    font-size: 25px;
+    line-height: 1.25;
+    margin-bottom: 6px;
+  }
+  .hero__desc {
+    font-size: 12.5px;
+    margin-bottom: 14px;
+    line-height: 1.4;
+  }
+
+  /* Horizontal Momentum Scrollable Chips */
+  .hero__chips {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 2px 2px 8px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    justify-content: flex-start;
+    width: 100%;
+    margin-bottom: 14px;
+  }
+  .hero__chips::-webkit-scrollbar {
+    display: none;
+  }
+  .chip {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 6px 12px;
+    font-size: 11px;
+    border-radius: var(--radius-full);
+  }
+
+  /* Search Box (Touch Ergonomics) */
+  .search-wrapper {
+    width: 100%;
+    max-width: 100%;
+  }
+  .search-box {
+    padding: 6px 8px;
+    border-radius: var(--radius-lg);
+    gap: 6px;
+  }
+  .search-box__input {
+    font-size: 16px !important; /* Prevents auto-zoom on iOS */
+    min-height: 46px;
+    padding-left: 6px;
+  }
+  .mode-selector {
+    padding: 2px;
+    gap: 2px;
+  }
+  .mode-btn {
+    padding: 6px 10px;
+    font-size: 11.5px;
+    min-height: 36px;
+  }
+  .btn-search {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    border-radius: var(--radius-md);
+  }
+
+  /* Results Section on Mobile */
+  .results-section {
+    padding-top: 14px;
+  }
+  .results-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .results-header h2 {
+    font-size: 17px;
+  }
+  .results-grid {
+    display: block;
+  }
+  .detail-panel {
+    display: none;
+  }
+
+  /* Result Items (Touch Friendly Cards) */
+  .result-item {
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    border-radius: var(--radius-lg);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .result-item:active {
+    transform: scale(0.985);
+    background: var(--surface-card);
+  }
+  .result-item__avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
+  .result-item__name {
+    font-size: 13.5px;
+  }
+  .result-item__dni {
+    font-size: 12px;
+  }
+
+  /* Mobile Bottom Sheet */
+  .sheet {
+    max-height: 90vh;
+    padding: 12px 16px max(32px, env(safe-area-inset-bottom));
+    border-radius: 24px 24px 0 0;
+  }
+  .sheet__handle {
+    width: 46px;
+    height: 5px;
+    margin: 4px auto 14px;
+  }
+
+  /* Detail Card inside Mobile Sheet */
+  .detail-toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .btn-action {
+    padding: 10px 8px;
+    font-size: 12px;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .dni-card-visual {
+    padding: 16px 14px;
+  }
+  .dni-card__fields-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .field-pill {
+    padding: 8px 12px;
+  }
+  .parents-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* Extra small devices (phones <= 480px) */
+@media (max-width: 480px) {
+  .hero h1 { font-size: 22px; }
+  .search-box {
+    flex-wrap: wrap;
+  }
+  .search-box__input-wrap {
+    width: 100%;
+  }
+  .search-box__actions {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+  }
+  .mode-selector {
+    flex: 1;
+  }
+  .mode-btn {
+    flex: 1;
+    text-align: center;
+  }
+  .detail-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -2036,16 +2244,93 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   text-align: center;
 }
 
-/* Action button inside persona detail card */
-.btn-action--c4 {
-  background: linear-gradient(135deg, rgba(2, 132, 199, 0.2) 0%, rgba(3, 105, 161, 0.2) 100%) !important;
-  border-color: rgba(56, 189, 248, 0.4) !important;
-  color: #38bdf8 !important;
-}
-.btn-action--c4:hover {
-  background: linear-gradient(135deg, rgba(2, 132, 199, 0.35) 0%, rgba(3, 105, 161, 0.35) 100%) !important;
-  border-color: #38bdf8 !important;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+/* ── Mobile Responsive for C4 Certificate Modal ──────────────────────── */
+@media (max-width: 768px) {
+  .c4-panel {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+  .c4-panel__header {
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .c4-panel__title {
+    font-size: 13px;
+  }
+  .btn-c4-action {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .c4-panel__body {
+    padding: 12px 6px;
+  }
+  .c4-document {
+    padding: 12px 10px !important;
+    font-size: 10px;
+    min-height: auto;
+    border-width: 1.5px;
+    border-radius: 4px;
+  }
+  .c4-document::before {
+    inset: 2mm;
+  }
+  .c4-doc-header {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .c4-doc-header__escudo svg {
+    width: 38px;
+    height: 42px;
+  }
+  .c4-doc-header__logo svg {
+    width: 65px;
+    height: 22px;
+  }
+  .c4-rep-title { font-size: 11px; }
+  .c4-reniec-title { font-size: 8px; }
+  .c4-cert-title { font-size: 13px; }
+  .c4-cert-sub { font-size: 7.5px; }
+  .c4-ribbon {
+    font-size: 8px;
+    padding: 4px 6px;
+    gap: 4px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .c4-person-wrap {
+    flex-direction: column;
+    align-items: center;
+  }
+  .c4-photo-col {
+    margin-bottom: 8px;
+  }
+  .c4-photo-frame {
+    width: 75px;
+    height: 90px;
+  }
+  .c4-table td {
+    padding: 3px 4px;
+  }
+  .c4-lbl { font-size: 7px; }
+  .c4-val { font-size: 9px; }
+  .c4-security-footer {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+  .c4-stamp-wrap {
+    align-self: center;
+  }
+  .c4-mrz-stripe {
+    font-size: 8px;
+    letter-spacing: 1px;
+    padding: 4px 2px;
+    overflow-x: auto;
+    word-break: break-all;
+  }
 }
 

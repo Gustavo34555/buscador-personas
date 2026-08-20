@@ -206,7 +206,13 @@
   function setMode(mode) {
     searchMode = mode;
     searchInput.placeholder = mode === 'dni' ? 'Escribe un DNI (8 dígitos)...' : 'Escribe apellidos o nombres completos...';
-    searchInput.inputMode = mode === 'dni' ? 'numeric' : 'text';
+    if (mode === 'dni') {
+      searchInput.setAttribute('inputmode', 'numeric');
+      searchInput.setAttribute('pattern', '[0-9]*');
+    } else {
+      searchInput.setAttribute('inputmode', 'text');
+      searchInput.removeAttribute('pattern');
+    }
     modeDni.classList.toggle('mode-btn--active', mode === 'dni');
     modeNombre.classList.toggle('mode-btn--active', mode === 'nombre');
     limitRow.classList.toggle('visible', mode === 'nombre');
@@ -1416,6 +1422,40 @@
   document.querySelectorAll('[data-close-sheet]').forEach((el) =>
     el.addEventListener('click', closeMobileSheet)
   );
+
+  // Mobile Swipe-down to dismiss bottom sheet
+  let sheetTouchStartY = 0;
+  let sheetTouchCurrentY = 0;
+
+  if (mobileSheet) {
+    mobileSheet.addEventListener('touchstart', (e) => {
+      if (mobileSheet.scrollTop <= 0) {
+        sheetTouchStartY = e.touches[0].clientY;
+      } else {
+        sheetTouchStartY = 0;
+      }
+    }, { passive: true });
+
+    mobileSheet.addEventListener('touchmove', (e) => {
+      if (!sheetTouchStartY) return;
+      sheetTouchCurrentY = e.touches[0].clientY;
+      const diffY = sheetTouchCurrentY - sheetTouchStartY;
+      if (diffY > 0) {
+        mobileSheet.style.transform = `translateY(${diffY}px)`;
+      }
+    }, { passive: true });
+
+    mobileSheet.addEventListener('touchend', () => {
+      if (!sheetTouchStartY) return;
+      const diffY = sheetTouchCurrentY - sheetTouchStartY;
+      if (diffY > 90) {
+        closeMobileSheet();
+      }
+      mobileSheet.style.transform = '';
+      sheetTouchStartY = 0;
+      sheetTouchCurrentY = 0;
+    });
+  }
 
   /* ── Error handling ──────────────────────────────────────── */
   function handleApiError(res, data) {
