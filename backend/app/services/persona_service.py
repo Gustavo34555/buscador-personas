@@ -401,33 +401,43 @@ def construir_arbol(dni: str):
             ).mappings().all()
             resultado["hermanos"] = [_fila_a_nodo(h) for h in hermanos_filas]
 
-        # 5. Buscar hijos (regla biológica: el hijo SIEMPRE es menor que la persona)
+        # 5. Buscar hijos (regla biológica: progenitor debe tener >= 13 años y los hijos deben ser menores)
         nombres_persona = (persona_fila.get("nombres") or "").strip().lower()
         ap_pat_persona = ap_pat_hijo
         sexo_persona = str(persona_fila.get("sexo") or "")
         es_padre = sexo_persona in ("1", "Masculino")
 
         primer_nombre_persona = nombres_persona.split()[0] if nombres_persona.split() else ""
-        tsq_hijos = _build_tsq(ap_pat_persona)
-
+        
         conyuge_nombre = ""
         if es_padre and madre_texto:
             conyuge_nombre = madre_texto.strip().lower()
         elif not es_padre and padre_texto:
             conyuge_nombre = padre_texto.strip().lower()
 
-        if tsq_hijos and primer_nombre_persona:
+        # Si se conoce el nombre del cónyuge, acelerar con GIN
+        if conyuge_nombre and conyuge_nombre.split():
+            tsq_hijos = _build_tsq(ap_pat_persona, conyuge_nombre.split()[0]) or _build_tsq(ap_pat_persona)
+        else:
+            tsq_hijos = _build_tsq(ap_pat_persona)
+
+        # Solo buscar hijos si se conoce la fecha de nacimiento y la persona tiene edad suficiente
+        d_persona = _parse_date(fecha_nac_persona)
+        puede_tener_hijos = d_persona is not None and (date.today() - d_persona).days / 365.25 >= 13
+
+        if tsq_hijos and primer_nombre_persona and puede_tener_hijos:
             hijos_filas = conn.execute(
                 text(BUSCAR_HIJOS_RANKED),
                 {
                     "tsq": tsq_hijos,
+                    "progenitor_dni": dni,
                     "progenitor_nombre": primer_nombre_persona,
                     "conyuge_nombre": conyuge_nombre,
                     "progenitor_ap_pat": ap_pat_persona,
                     "es_padre": es_padre,
                     "progenitor_ubigeo": (persona_fila.get("ubigeo_nac") or ""),
                     "progenitor_direccion": (persona_fila.get("direccion") or "").strip().lower(),
-                    "progenitor_fecha_nac": str(fecha_nac_persona) if fecha_nac_persona else "1900-01-01",
+                    "progenitor_fecha_nac": str(fecha_nac_persona),
                 },
             ).mappings().all()
             resultado["hijos"] = [
