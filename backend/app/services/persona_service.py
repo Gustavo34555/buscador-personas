@@ -1,3 +1,4 @@
+from datetime import date, datetime
 import re
 from sqlalchemy import bindparam, text
 
@@ -187,6 +188,36 @@ def _nodo_solo_nombre(nombre_texto, sexo_hint=None):
     }
 
 
+def _parse_date(d):
+    """Parsea una fecha de string o date a objeto datetime.date."""
+    if not d:
+        return None
+    if isinstance(d, date):
+        return d
+    try:
+        from datetime import datetime
+        return datetime.strptime(str(d).strip(), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _es_edad_progenitor_valida(fecha_progenitor, fecha_descendiente, min_dif=13, max_dif=75) -> bool:
+    """Valida biológicamente que un progenitor sea mayor que su descendiente."""
+    d_prog = _parse_date(fecha_progenitor)
+    d_desc = _parse_date(fecha_descendiente)
+    if not d_prog or not d_desc:
+        return True  # Sin fecha registrada, no se puede descartar por edad
+    if d_prog >= d_desc:
+        return False  # Progenitor nació después o igual que el descendiente -> IMPOSIBLE
+    dif_anios = (d_desc - d_prog).days / 365.25
+    return min_dif <= dif_anios <= max_dif
+
+
+def _es_edad_hijo_valida(fecha_hijo, fecha_progenitor, min_dif=13, max_dif=70) -> bool:
+    """Valida que un hijo haya nacido después de su progenitor."""
+    return _es_edad_progenitor_valida(fecha_progenitor, fecha_hijo, min_dif=min_dif, max_dif=max_dif)
+
+
 def _build_tsq(*words) -> str:
     """Construye un tsquery seguro uniendo palabras con &."""
     clean = [_sanitize_word(w) for w in words if w and _sanitize_word(w)]
@@ -194,7 +225,7 @@ def _build_tsq(*words) -> str:
 
 
 def _buscar_padre(conn, padre_nombre, hijo_fila):
-    """Busca al padre usando ranking multi-factor con filtro GIN."""
+    """Busca al padre usando ranking multi-factor con filtro GIN y validación biológica."""
     from app.sql.queries import BUSCAR_PADRE_RANKED
 
     padre_nombre_clean = padre_nombre.strip().lower()
@@ -214,18 +245,21 @@ def _buscar_padre(conn, padre_nombre, hijo_fila):
         "hijo_ap_pat": hijo_ap_pat,
         "hijo_ubigeo_nac": (hijo_fila.get("ubigeo_nac") or ""),
         "hijo_ubigeo_dir": (hijo_fila.get("ubigeo_dir") or ""),
+        "hijo_direccion": (hijo_fila.get("direccion") or "").strip().lower(),
         "hijo_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
     }
 
     try:
         fila = conn.execute(text(BUSCAR_PADRE_RANKED), params).mappings().first()
-        return _fila_a_nodo(fila) if fila else None
+        if fila and _es_edad_progenitor_valida(fila.get("fecha_nac"), fecha_nac):
+            return _fila_a_nodo(fila)
+        return None
     except Exception:
         return None
 
 
 def _buscar_madre(conn, madre_nombre, hijo_fila):
-    """Busca a la madre usando ranking multi-factor con filtro GIN."""
+    """Busca a la madre usando ranking multi-factor con filtro GIN y validación biológica."""
     from app.sql.queries import BUSCAR_MADRE_RANKED
 
     madre_nombre_clean = madre_nombre.strip().lower()
@@ -245,25 +279,28 @@ def _buscar_madre(conn, madre_nombre, hijo_fila):
         "hijo_ap_mat": hijo_ap_mat,
         "hijo_ubigeo_nac": (hijo_fila.get("ubigeo_nac") or ""),
         "hijo_ubigeo_dir": (hijo_fila.get("ubigeo_dir") or ""),
+        "hijo_direccion": (hijo_fila.get("direccion") or "").strip().lower(),
         "hijo_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
     }
 
     try:
         fila = conn.execute(text(BUSCAR_MADRE_RANKED), params).mappings().first()
-        return _fila_a_nodo(fila) if fila else None
+        if fila and _es_edad_progenitor_valida(fila.get("fecha_nac"), fecha_nac, min_dif=13, max_dif=55):
+            return _fila_a_nodo(fila)
+        return None
     except Exception:
         return None
 
 
 def construir_arbol(dni: str):
-    """Construye el árbol genealógico con ranking multi-factor y aceleración GIN.
+    """Construye el árbol genealógico con lógica biológica estricta y aceleración GIN.
 
-    Factores de correlación:
+    Factores de correlación y validación:
+    - Regla biológica estricta: progenitores > descendientes (mínimo 13 años de diferencia)
     - Nombre de pila del padre/madre
     - Herencia de apellidos (ap_pat del padre → ap_pat del hijo, ap_pat de madre → ap_mat del hijo)
-    - Ubigeo de nacimiento (distrito > provincia > departamento)
-    - Ubigeo de domicilio
-    - Rango de edad razonable entre generaciones
+    - Correlación geográfica por Ubigeo de nacimiento y domicilio
+    - Correlación de dirección física exacta
     - Sexo del candidato
     """
     from app.sql.queries import (
@@ -279,6 +316,7 @@ def construir_arbol(dni: str):
             return None
 
         persona_nodo = _fila_a_nodo(persona_fila)
+        fecha_nac_persona = persona_fila.get("fecha_nac")
 
         resultado = {
             "persona": persona_nodo,
@@ -298,15 +336,21 @@ def construir_arbol(dni: str):
             padre_nodo = _buscar_padre(conn, padre_texto, persona_fila)
             if padre_nodo:
                 resultado["padre"] = padre_nodo
-                # Abuelos paternos
+                # Abuelos paternos (validados respecto a la edad del padre)
                 abuelo_p_nombre = padre_nodo.get("padre")
                 abuela_p_nombre = padre_nodo.get("madre")
                 if abuelo_p_nombre and abuelo_p_nombre.strip():
                     abuelo = _buscar_padre(conn, abuelo_p_nombre, padre_nodo)
-                    resultado["abuelo_paterno"] = abuelo or _nodo_solo_nombre(abuelo_p_nombre, "Masculino")
+                    if abuelo and _es_edad_progenitor_valida(abuelo.get("fecha_nac"), padre_nodo.get("fecha_nac")):
+                        resultado["abuelo_paterno"] = abuelo
+                    else:
+                        resultado["abuelo_paterno"] = _nodo_solo_nombre(abuelo_p_nombre, "Masculino")
                 if abuela_p_nombre and abuela_p_nombre.strip():
                     abuela = _buscar_madre(conn, abuela_p_nombre, padre_nodo)
-                    resultado["abuela_paterna"] = abuela or _nodo_solo_nombre(abuela_p_nombre, "Femenino")
+                    if abuela and _es_edad_progenitor_valida(abuela.get("fecha_nac"), padre_nodo.get("fecha_nac")):
+                        resultado["abuela_paterna"] = abuela
+                    else:
+                        resultado["abuela_paterna"] = _nodo_solo_nombre(abuela_p_nombre, "Femenino")
             else:
                 resultado["padre"] = _nodo_solo_nombre(padre_texto, "Masculino")
 
@@ -316,20 +360,25 @@ def construir_arbol(dni: str):
             madre_nodo = _buscar_madre(conn, madre_texto, persona_fila)
             if madre_nodo:
                 resultado["madre"] = madre_nodo
-                # Abuelos maternos
+                # Abuelos maternos (validados respecto a la edad de la madre)
                 abuelo_m_nombre = madre_nodo.get("padre")
                 abuela_m_nombre = madre_nodo.get("madre")
                 if abuelo_m_nombre and abuelo_m_nombre.strip():
                     abuelo = _buscar_padre(conn, abuelo_m_nombre, madre_nodo)
-                    resultado["abuelo_materno"] = abuelo or _nodo_solo_nombre(abuelo_m_nombre, "Masculino")
+                    if abuelo and _es_edad_progenitor_valida(abuelo.get("fecha_nac"), madre_nodo.get("fecha_nac")):
+                        resultado["abuelo_materno"] = abuelo
+                    else:
+                        resultado["abuelo_materno"] = _nodo_solo_nombre(abuelo_m_nombre, "Masculino")
                 if abuela_m_nombre and abuela_m_nombre.strip():
                     abuela = _buscar_madre(conn, abuela_m_nombre, madre_nodo)
-                    resultado["abuela_materna"] = abuela or _nodo_solo_nombre(abuela_m_nombre, "Femenino")
+                    if abuela and _es_edad_progenitor_valida(abuela.get("fecha_nac"), madre_nodo.get("fecha_nac")):
+                        resultado["abuela_materna"] = abuela
+                    else:
+                        resultado["abuela_materna"] = _nodo_solo_nombre(abuela_m_nombre, "Femenino")
             else:
                 resultado["madre"] = _nodo_solo_nombre(madre_texto, "Femenino")
 
-        # 4. Buscar hermanos (mismos padres + apellidos + ubigeo + edad cercana)
-        fecha_nac = persona_fila.get("fecha_nac")
+        # 4. Buscar hermanos (mismo padre + apellidos + ubigeo + dirección + edad cercana)
         ap_pat_hijo = (persona_fila.get("ap_pat") or "").lower()
         ap_mat_hijo = (persona_fila.get("ap_mat") or "").lower()
 
@@ -346,12 +395,13 @@ def construir_arbol(dni: str):
                     "hijo_ap_mat": ap_mat_hijo,
                     "hijo_ubigeo_nac": (persona_fila.get("ubigeo_nac") or ""),
                     "hijo_ubigeo_dir": (persona_fila.get("ubigeo_dir") or ""),
-                    "hijo_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
+                    "hijo_direccion": (persona_fila.get("direccion") or "").strip().lower(),
+                    "hijo_fecha_nac": str(fecha_nac_persona) if fecha_nac_persona else "1900-01-01",
                 },
             ).mappings().all()
             resultado["hermanos"] = [_fila_a_nodo(h) for h in hermanos_filas]
 
-        # 5. Buscar hijos
+        # 5. Buscar hijos (regla biológica: el hijo SIEMPRE es menor que la persona)
         nombres_persona = (persona_fila.get("nombres") or "").strip().lower()
         ap_pat_persona = ap_pat_hijo
         sexo_persona = str(persona_fila.get("sexo") or "")
@@ -376,12 +426,17 @@ def construir_arbol(dni: str):
                     "progenitor_ap_pat": ap_pat_persona,
                     "es_padre": es_padre,
                     "progenitor_ubigeo": (persona_fila.get("ubigeo_nac") or ""),
-                    "progenitor_fecha_nac": str(fecha_nac) if fecha_nac else "1900-01-01",
+                    "progenitor_direccion": (persona_fila.get("direccion") or "").strip().lower(),
+                    "progenitor_fecha_nac": str(fecha_nac_persona) if fecha_nac_persona else "1900-01-01",
                 },
             ).mappings().all()
-            resultado["hijos"] = [_fila_a_nodo(h) for h in hijos_filas]
+            resultado["hijos"] = [
+                _fila_a_nodo(h) for h in hijos_filas
+                if _es_edad_hijo_valida(h.get("fecha_nac"), fecha_nac_persona)
+            ]
 
         return resultado
+
 
 
 
