@@ -83,3 +83,36 @@ class FrontendTokenResponse(BaseModel):
 
     token: str
     expires_in: int
+
+
+class ArbolNodo(BaseModel):
+    """Nodo básico del árbol genealógico."""
+
+    dni: str | None = None
+    nombres: str | None = None
+    ap_pat: str | None = None
+    ap_mat: str | None = None
+    sexo: str | None = None
+    edad_anios: int | None = None
+    fecha_nac: date | str | None = None
+    est_civil: str | None = None
+    padre: str | None = None
+    madre: str | None = None
+    encontrado: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class ArbolResponse(BaseModel):
+    """Respuesta completa del árbol genealógico."""
+
+    persona: ArbolNodo
+    padre: ArbolNodo | None = None
+    madre: ArbolNodo | None = None
+    abuelo_paterno: ArbolNodo | None = None
+    abuela_paterna: ArbolNodo | None = None
+    abuelo_materno: ArbolNodo | None = None
+    abuela_materna: ArbolNodo | None = None
+    hermanos: list[ArbolNodo] = []
+    hijos: list[ArbolNodo] = []
+

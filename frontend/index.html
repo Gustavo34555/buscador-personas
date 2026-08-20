@@ -49,7 +49,28 @@
     <div id="mobile-sheet-content"></div>
   </div>
 
-  <!-- Header -->
+  <!-- Family Tree Modal -->
+  <div id="tree-modal" class="tree-overlay" role="dialog" aria-label="Árbol Genealógico">
+    <div class="tree-backdrop" data-close-tree></div>
+    <div class="tree-panel">
+      <div class="tree-panel__header">
+        <div class="tree-panel__title">
+          <span class="material-symbols-outlined" style="color:var(--accent-light)">account_tree</span>
+          <span>Árbol Genealógico</span>
+        </div>
+        <button id="btn-close-tree" class="tree-panel__close" title="Cerrar">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div id="tree-container" class="tree-container">
+        <div class="tree-loading">
+          <div class="qs-spinner"></div>
+          <p>Construyendo árbol genealógico...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <header class="header">
     <div class="header__inner">
       <div class="header__brand">

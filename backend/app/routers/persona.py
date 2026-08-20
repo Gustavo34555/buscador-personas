@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.cache import TTLCache
 from app.config import BUSCAR_CACHE_TTL, DNI_CACHE_TTL
 from app.dependencies import get_client_host, verify_search_rate_limit
-from app.schemas import PersonaBusquedaItem, PersonaResponse
+from app.schemas import ArbolResponse, PersonaBusquedaItem, PersonaResponse
 from app.security import require_api_key
 from app.services import auditoria_service, persona_service
 
@@ -112,3 +112,24 @@ async def buscar_personas(
     buscar_cache.set(cache_key, result)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "buscar", q)
     return result
+
+
+@router.get("/persona/{dni}/arbol", response_model=ArbolResponse)
+async def arbol_genealogico(
+    dni: str,
+    _rate_limit: None = Depends(verify_search_rate_limit),
+    _auth: None = Depends(require_api_key),
+):
+    if not (dni.isdigit() and len(dni) == 8):
+        raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
+
+    try:
+        arbol = await asyncio.to_thread(persona_service.construir_arbol, dni)
+    except SQLAlchemyError as e:
+        logger.exception("Error al construir árbol genealógico")
+        raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
+
+    if not arbol:
+        raise HTTPException(status_code=404, detail="Persona no encontrada")
+
+    return arbol

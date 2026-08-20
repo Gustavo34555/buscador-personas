@@ -127,6 +127,40 @@ RANK_PRECISO = f"""
     LIMIT :limit
 """
 
+BUSCAR_POR_NOMBRE_EXACTO = f"""
+    SELECT
+        dni, ap_pat, ap_mat, nombres, padre, madre, fecha_nac,
+        {SEXO_EXPR} AS sexo, est_civil,
+        {EDAD_COLS}
+    FROM personas
+    WHERE {NC_EXPR} = :nombre_completo
+    LIMIT 5
+"""
+
+BUSCAR_HIJOS = f"""
+    SELECT
+        dni, ap_pat, ap_mat, nombres, padre, madre, fecha_nac,
+        {SEXO_EXPR} AS sexo, est_civil,
+        {EDAD_COLS}
+    FROM personas
+    WHERE padre = :nombre_completo OR madre = :nombre_completo
+    LIMIT 10
+"""
+
+BUSCAR_HERMANOS = f"""
+    SELECT
+        dni, ap_pat, ap_mat, nombres, padre, madre, fecha_nac,
+        {SEXO_EXPR} AS sexo, est_civil,
+        {EDAD_COLS}
+    FROM personas
+    WHERE dni != :dni_excluir
+      AND (
+          (padre != '' AND padre IS NOT NULL AND padre = :padre)
+          OR (madre != '' AND madre IS NOT NULL AND madre = :madre)
+      )
+    LIMIT 10
+"""
+
 RUC_POR_DNI = """
     SELECT dni, dig_ruc, ap_pat, ap_mat, nombres
     FROM personas

@@ -138,3 +138,154 @@ def buscar_personas(
 def obtener_ruc_de_persona(dni: str):
     with engine.connect() as conn:
         return conn.execute(text(RUC_POR_DNI), {"dni": dni}).mappings().first()
+
+
+def _nombre_completo(fila):
+    """Construye nombre completo desde una fila de resultado."""
+    partes = [fila.get("nombres"), fila.get("ap_pat"), fila.get("ap_mat")]
+    return " ".join(p for p in partes if p).strip().lower()
+
+
+def _fila_a_nodo(fila):
+    """Convierte una fila de BD a diccionario de nodo del árbol."""
+    return {
+        "dni": fila.get("dni"),
+        "nombres": fila.get("nombres"),
+        "ap_pat": fila.get("ap_pat"),
+        "ap_mat": fila.get("ap_mat"),
+        "sexo": fila.get("sexo"),
+        "edad_anios": fila.get("edad_anios"),
+        "fecha_nac": str(fila["fecha_nac"]) if fila.get("fecha_nac") else None,
+        "est_civil": fila.get("est_civil"),
+        "padre": fila.get("padre"),
+        "madre": fila.get("madre"),
+        "encontrado": True,
+    }
+
+
+def _nodo_solo_nombre(nombre_texto, sexo_hint=None):
+    """Crea un nodo placeholder cuando solo se tiene el nombre de texto."""
+    if not nombre_texto:
+        return None
+    partes = nombre_texto.strip().split()
+    return {
+        "dni": None,
+        "nombres": " ".join(partes[:-2]) if len(partes) > 2 else (partes[0] if partes else None),
+        "ap_pat": partes[-2] if len(partes) >= 2 else None,
+        "ap_mat": partes[-1] if len(partes) >= 2 else None,
+        "sexo": sexo_hint,
+        "edad_anios": None,
+        "fecha_nac": None,
+        "est_civil": None,
+        "padre": None,
+        "madre": None,
+        "encontrado": False,
+    }
+
+
+def construir_arbol(dni: str):
+    """Construye el árbol genealógico completo de una persona."""
+    from app.sql.queries import (
+        BUSCAR_HERMANOS,
+        BUSCAR_HIJOS,
+        BUSCAR_POR_NOMBRE_EXACTO,
+        PERSONA_POR_DNI,
+    )
+
+    with engine.connect() as conn:
+        # 1. Persona principal
+        persona_fila = conn.execute(text(PERSONA_POR_DNI), {"dni": dni}).mappings().first()
+        if not persona_fila:
+            return None
+
+        persona_nodo = _fila_a_nodo(persona_fila)
+        nombre_persona = _nombre_completo(persona_fila)
+
+        resultado = {
+            "persona": persona_nodo,
+            "padre": None,
+            "madre": None,
+            "abuelo_paterno": None,
+            "abuela_paterna": None,
+            "abuelo_materno": None,
+            "abuela_materna": None,
+            "hermanos": [],
+            "hijos": [],
+        }
+
+        # 2. Buscar padre
+        padre_texto = persona_fila.get("padre")
+        if padre_texto and padre_texto.strip():
+            padre_filas = conn.execute(
+                text(BUSCAR_POR_NOMBRE_EXACTO),
+                {"nombre_completo": padre_texto.strip().lower()},
+            ).mappings().all()
+            if padre_filas:
+                resultado["padre"] = _fila_a_nodo(padre_filas[0])
+                # Abuelos paternos
+                abuelo_p = padre_filas[0].get("padre")
+                abuela_p = padre_filas[0].get("madre")
+                if abuelo_p and abuelo_p.strip():
+                    ab_filas = conn.execute(
+                        text(BUSCAR_POR_NOMBRE_EXACTO),
+                        {"nombre_completo": abuelo_p.strip().lower()},
+                    ).mappings().all()
+                    resultado["abuelo_paterno"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuelo_p, "Masculino")
+                if abuela_p and abuela_p.strip():
+                    ab_filas = conn.execute(
+                        text(BUSCAR_POR_NOMBRE_EXACTO),
+                        {"nombre_completo": abuela_p.strip().lower()},
+                    ).mappings().all()
+                    resultado["abuela_paterna"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuela_p, "Femenino")
+            else:
+                resultado["padre"] = _nodo_solo_nombre(padre_texto, "Masculino")
+
+        # 3. Buscar madre
+        madre_texto = persona_fila.get("madre")
+        if madre_texto and madre_texto.strip():
+            madre_filas = conn.execute(
+                text(BUSCAR_POR_NOMBRE_EXACTO),
+                {"nombre_completo": madre_texto.strip().lower()},
+            ).mappings().all()
+            if madre_filas:
+                resultado["madre"] = _fila_a_nodo(madre_filas[0])
+                # Abuelos maternos
+                abuelo_m = madre_filas[0].get("padre")
+                abuela_m = madre_filas[0].get("madre")
+                if abuelo_m and abuelo_m.strip():
+                    ab_filas = conn.execute(
+                        text(BUSCAR_POR_NOMBRE_EXACTO),
+                        {"nombre_completo": abuelo_m.strip().lower()},
+                    ).mappings().all()
+                    resultado["abuelo_materno"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuelo_m, "Masculino")
+                if abuela_m and abuela_m.strip():
+                    ab_filas = conn.execute(
+                        text(BUSCAR_POR_NOMBRE_EXACTO),
+                        {"nombre_completo": abuela_m.strip().lower()},
+                    ).mappings().all()
+                    resultado["abuela_materna"] = _fila_a_nodo(ab_filas[0]) if ab_filas else _nodo_solo_nombre(abuela_m, "Femenino")
+            else:
+                resultado["madre"] = _nodo_solo_nombre(madre_texto, "Femenino")
+
+        # 4. Buscar hermanos (mismos padres)
+        if (padre_texto and padre_texto.strip()) or (madre_texto and madre_texto.strip()):
+            hermanos_filas = conn.execute(
+                text(BUSCAR_HERMANOS),
+                {
+                    "dni_excluir": dni,
+                    "padre": (padre_texto or "").strip(),
+                    "madre": (madre_texto or "").strip(),
+                },
+            ).mappings().all()
+            resultado["hermanos"] = [_fila_a_nodo(h) for h in hermanos_filas]
+
+        # 5. Buscar hijos
+        if nombre_persona:
+            hijos_filas = conn.execute(
+                text(BUSCAR_HIJOS),
+                {"nombre_completo": nombre_persona},
+            ).mappings().all()
+            resultado["hijos"] = [_fila_a_nodo(h) for h in hijos_filas]
+
+        return resultado
+

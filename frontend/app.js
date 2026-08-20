@@ -58,6 +58,8 @@
   const mobileSheet       = $('mobile-sheet');
   const mobileSheetOverlay = $('mobile-sheet-overlay');
   const mobileSheetContent = $('mobile-sheet-content');
+  const treeModal          = $('tree-modal');
+  const treeContainer      = $('tree-container');
 
   let resultados = [];
   let personaSeleccionada = null;
@@ -358,6 +360,10 @@
             <span class="material-symbols-outlined">content_copy</span>
             <span>Copiar DNI</span>
           </button>
+          <button class="btn-action" id="btn-tree" title="Ver árbol genealógico">
+            <span class="material-symbols-outlined">account_tree</span>
+            <span>Árbol</span>
+          </button>
           <button class="btn-action" id="btn-print-sheet" title="Imprimir ficha">
             <span class="material-symbols-outlined">print</span>
             <span>Imprimir</span>
@@ -565,6 +571,172 @@
     if (rucBtn) {
       rucBtn.addEventListener('click', () => consultarRUC(rucBtn, rucRes, p.dni));
     }
+
+    const treeBtn = container.querySelector('#btn-tree');
+    if (treeBtn) {
+      treeBtn.addEventListener('click', () => openTreeModal(p.dni));
+    }
+  }
+
+  /* ── Family Tree Modal ──────────────────────────────────────── */
+  function openTreeModal(dni) {
+    treeModal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    treeContainer.innerHTML = '<div class="tree-loading"><div class="qs-spinner"></div><p>Construyendo árbol genealógico...</p></div>';
+    fetchArbol(dni);
+  }
+
+  function closeTreeModal() {
+    treeModal.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('[data-close-tree]').forEach(el => el.addEventListener('click', closeTreeModal));
+  $('btn-close-tree').addEventListener('click', closeTreeModal);
+
+  async function fetchArbol(dni) {
+    try {
+      const res = await fetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/arbol`, { headers: apiHeaders() });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        treeContainer.innerHTML = `<div class="tree-empty">
+          <span class="material-symbols-outlined tree-empty__icon">error</span>
+          <p class="tree-empty__title">${escHtml(body?.detail || 'Error al cargar el árbol')}</p>
+        </div>`;
+        return;
+      }
+      const data = await res.json();
+      renderArbol(data);
+    } catch {
+      treeContainer.innerHTML = `<div class="tree-empty">
+        <span class="material-symbols-outlined tree-empty__icon">cloud_off</span>
+        <p class="tree-empty__title">Error de conexión</p>
+        <p class="tree-empty__desc">No se pudo conectar al servidor para construir el árbol genealógico</p>
+      </div>`;
+    }
+  }
+
+  function treeNodeHtml(nodo, opts = {}) {
+    if (!nodo) return '';
+    const n = [nodo.nombres, nodo.ap_pat, nodo.ap_mat].filter(Boolean).join(' ').trim() || '-';
+    const g = sexoLetra(nodo.sexo);
+    const gClass = g === 'M' ? 'tree-node--male' : g === 'F' ? 'tree-node--female' : '';
+    const mainClass = opts.isMain ? 'tree-node--main' : '';
+    const ghostClass = !nodo.encontrado ? 'tree-node--ghost' : '';
+    const smClass = opts.small ? 'tree-node--sm' : '';
+    const clickAttr = nodo.encontrado && nodo.dni ? `data-tree-dni="${escHtml(nodo.dni)}"` : '';
+    const icon = g === 'F' ? 'woman' : 'person';
+    const relation = opts.relation ? `<p class="tree-node__relation">${escHtml(opts.relation)}</p>` : '';
+    const meta = nodo.dni ? `DNI ${escHtml(nodo.dni)}` : (nodo.encontrado ? '' : 'No encontrado');
+    const age = nodo.edad_anios ? ` · ${nodo.edad_anios}a` : '';
+
+    return `<div class="tree-node ${gClass} ${mainClass} ${ghostClass} ${smClass}" ${clickAttr} title="${escHtml(n)}">
+      ${relation}
+      <span class="material-symbols-outlined tree-node__icon">${icon}</span>
+      <p class="tree-node__name">${escHtml(n)}</p>
+      <p class="tree-node__meta">${meta}${age}</p>
+    </div>`;
+  }
+
+  function renderArbol(data) {
+    const p = data.persona;
+    if (!p) {
+      treeContainer.innerHTML = `<div class="tree-empty">
+        <span class="material-symbols-outlined tree-empty__icon">person_off</span>
+        <p class="tree-empty__title">Sin datos genealógicos</p>
+        <p class="tree-empty__desc">No se encontró información familiar para esta persona</p>
+      </div>`;
+      return;
+    }
+
+    let html = '<div class="tree">';
+
+    // ── Level 0: Grandparents ──
+    const hasGPPat = data.abuelo_paterno || data.abuela_paterna;
+    const hasGPMat = data.abuelo_materno || data.abuela_materna;
+    if (hasGPPat || hasGPMat) {
+      html += '<p class="tree-gen-label">Abuelos</p>';
+      html += '<div class="tree-level"><div class="tree-grandparents">';
+      if (hasGPPat) {
+        html += '<div class="tree-gp-couple">';
+        html += '<p class="tree-gp-label">Línea Paterna</p>';
+        html += '<div class="tree-gp-pair">';
+        if (data.abuelo_paterno) html += treeNodeHtml(data.abuelo_paterno, { small: true, relation: 'Abuelo' });
+        if (data.abuela_paterna) html += treeNodeHtml(data.abuela_paterna, { small: true, relation: 'Abuela' });
+        html += '</div>';
+        html += '<div class="tree-gp-connector"></div>';
+        html += '</div>';
+      }
+      if (hasGPMat) {
+        html += '<div class="tree-gp-couple">';
+        html += '<p class="tree-gp-label">Línea Materna</p>';
+        html += '<div class="tree-gp-pair">';
+        if (data.abuelo_materno) html += treeNodeHtml(data.abuelo_materno, { small: true, relation: 'Abuelo' });
+        if (data.abuela_materna) html += treeNodeHtml(data.abuela_materna, { small: true, relation: 'Abuela' });
+        html += '</div>';
+        html += '<div class="tree-gp-connector"></div>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+      html += '<div class="tree-connector"></div>';
+    }
+
+    // ── Level 1: Parents ──
+    if (data.padre || data.madre) {
+      html += '<p class="tree-gen-label">Padres</p>';
+      html += '<div class="tree-level"><div class="tree-couple">';
+      if (data.padre) html += treeNodeHtml(data.padre, { relation: 'Padre' });
+      if (data.madre) html += treeNodeHtml(data.madre, { relation: 'Madre' });
+      html += '</div></div>';
+      html += '<div class="tree-connector"></div>';
+    }
+
+    // ── Level 2: Person + Siblings ──
+    const hermanos = data.hermanos || [];
+    html += '<p class="tree-gen-label">Persona' + (hermanos.length > 0 ? ' y Hermanos' : '') + '</p>';
+    html += '<div class="tree-level"><div class="tree-siblings-row">';
+    hermanos.forEach((h, i) => {
+      if (i === Math.floor(hermanos.length / 2)) {
+        html += treeNodeHtml(p, { isMain: true });
+      }
+      html += treeNodeHtml(h, { relation: 'Hermano/a' });
+    });
+    if (hermanos.length === 0) {
+      html += treeNodeHtml(p, { isMain: true });
+    }
+    html += '</div></div>';
+
+    // ── Level 3: Children ──
+    const hijos = data.hijos || [];
+    if (hijos.length > 0) {
+      html += '<div class="tree-connector"></div>';
+      html += '<p class="tree-gen-label">Hijos</p>';
+      html += '<div class="tree-level"><div class="tree-branch">';
+      hijos.forEach(h => {
+        html += '<div class="tree-branch-child">';
+        html += treeNodeHtml(h, { relation: 'Hijo/a' });
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    html += '</div>';
+    treeContainer.innerHTML = html;
+
+    // Bind click events on tree nodes to navigate
+    treeContainer.querySelectorAll('[data-tree-dni]').forEach(node => {
+      node.addEventListener('click', () => {
+        const nodeDni = node.getAttribute('data-tree-dni');
+        if (nodeDni) {
+          // Navigate to this person
+          closeTreeModal();
+          setMode('dni');
+          searchInput.value = nodeDni;
+          btnClearSearch.classList.add('visible');
+          search();
+        }
+      });
+    });
   }
 
   function showDetail(p, index) {
@@ -886,6 +1058,7 @@
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); openQS(); return; }
     if (e.key === 'Escape') {
+      if (treeModal.classList.contains('open')) { closeTreeModal(); return; }
       if (qsModal.classList.contains('open')) { closeQS(); return; }
       if (mobileSheet.classList.contains('open')) { closeMobileSheet(); return; }
     }

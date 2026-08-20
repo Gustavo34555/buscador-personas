@@ -1086,3 +1086,345 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   .search-box__input { font-size: 15px; min-height: 44px; }
   .mode-btn { padding: 0 10px; font-size: 11px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   20. ÁRBOL GENEALÓGICO — Family Tree Modal & Visualization
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Modal Overlay ───────────────────────────────────────────────────── */
+.tree-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.35s var(--ease-smooth);
+}
+.tree-overlay.open { opacity: 1; pointer-events: auto; }
+
+.tree-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.tree-panel {
+  position: relative; z-index: 1;
+  width: 94vw; max-width: 1200px;
+  height: 85vh; max-height: 800px;
+  background: var(--surface-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.04),
+    0 24px 80px -12px rgba(0,0,0,0.6),
+    0 0 60px -10px var(--accent-glow);
+  transform: scale(0.92) translateY(20px);
+  transition: transform 0.4s var(--ease-spring);
+}
+.tree-overlay.open .tree-panel {
+  transform: scale(1) translateY(0);
+}
+
+.tree-panel__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tree-panel__title {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 18px;
+  color: var(--text);
+}
+.tree-panel__close {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  color: var(--text-4);
+  transition: all 0.2s;
+}
+.tree-panel__close:hover {
+  background: var(--red-dim); color: var(--red);
+  border-color: rgba(244,63,94,0.3);
+}
+
+/* ── Tree Container (scrollable) ─────────────────────────────────── */
+.tree-container {
+  flex: 1; overflow: auto;
+  padding: 32px 24px 48px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.tree-loading {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 80px 0;
+  color: var(--text-5);
+  font-size: 13px;
+}
+
+/* ── Tree Layout ─────────────────────────────────────────────────── */
+.tree { display: flex; flex-direction: column; align-items: center; gap: 0; min-width: min-content; }
+
+/* Each generation level */
+.tree-level {
+  display: flex; align-items: flex-end; justify-content: center;
+  gap: 16px; position: relative;
+  padding-bottom: 24px;
+}
+
+/* Connector line down from a level */
+.tree-level + .tree-connector {
+  width: 2px; height: 24px;
+  background: linear-gradient(180deg, var(--accent), rgba(99,102,241,0.2));
+  border-radius: 2px;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.tree-connector {
+  width: 2px; height: 24px;
+  background: linear-gradient(180deg, var(--accent), rgba(99,102,241,0.2));
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Couple grouping (padre + madre) */
+.tree-couple {
+  display: flex; align-items: flex-end; gap: 12px;
+  position: relative;
+}
+.tree-couple::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 50%; transform: translateX(-50%);
+  width: calc(100% - 80px);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.4;
+}
+
+/* Grandparents grouping */
+.tree-grandparents {
+  display: flex; align-items: flex-end; gap: 48px;
+  justify-content: center;
+}
+.tree-gp-couple {
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+}
+.tree-gp-pair {
+  display: flex; align-items: flex-end; gap: 8px;
+}
+.tree-gp-pair::after {
+  content: none;
+}
+.tree-gp-connector {
+  width: 2px; height: 16px;
+  background: linear-gradient(180deg, rgba(99,102,241,0.4), rgba(99,102,241,0.1));
+  border-radius: 2px;
+}
+.tree-gp-label {
+  font-size: 9px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--text-6);
+  margin-bottom: 6px;
+}
+
+/* Siblings row */
+.tree-siblings-row {
+  display: flex; align-items: flex-start; justify-content: center;
+  gap: 10px; position: relative;
+  flex-wrap: nowrap;
+}
+
+/* Branch lines for children/siblings */
+.tree-branch {
+  position: relative;
+  display: flex; align-items: flex-start; justify-content: center;
+  gap: 10px;
+  padding-top: 24px;
+}
+.tree-branch::before {
+  content: '';
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 2px; height: 24px;
+  background: linear-gradient(180deg, var(--accent), rgba(99,102,241,0.15));
+  border-radius: 2px;
+}
+/* Horizontal line spanning children */
+.tree-branch-line {
+  position: absolute; top: 24px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 10%, var(--accent) 90%, transparent 100%);
+  opacity: 0.35;
+  border-radius: 2px;
+}
+/* Individual drop lines from branch to child */
+.tree-branch-child {
+  display: flex; flex-direction: column; align-items: center;
+}
+.tree-branch-child::before {
+  content: '';
+  width: 2px; height: 16px;
+  background: linear-gradient(180deg, rgba(99,102,241,0.35), rgba(99,102,241,0.08));
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Node Card ───────────────────────────────────────────────────── */
+.tree-node {
+  min-width: 120px; max-width: 160px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s var(--ease);
+  position: relative;
+  overflow: hidden;
+}
+.tree-node::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(99,102,241,0.06) 0%, transparent 50%);
+  pointer-events: none;
+}
+.tree-node:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -8px rgba(0,0,0,0.4);
+}
+
+/* Male node accent */
+.tree-node--male { border-left: 3px solid var(--blue); }
+.tree-node--male .tree-node__icon { color: var(--blue); }
+
+/* Female node accent */
+.tree-node--female { border-left: 3px solid var(--pink); }
+.tree-node--female .tree-node__icon { color: var(--pink); }
+
+/* Main person node — highlighted */
+.tree-node--main {
+  border-color: var(--accent);
+  border-width: 2px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.12) 0%, var(--surface) 60%);
+  box-shadow: 0 0 20px -4px var(--accent-glow), 0 0 0 1px rgba(99,102,241,0.15);
+  min-width: 140px;
+}
+.tree-node--main .tree-node__name { color: var(--accent-soft); font-weight: 700; }
+.tree-node--main::after {
+  content: '★';
+  position: absolute; top: 6px; right: 8px;
+  font-size: 10px; color: var(--accent-light);
+  opacity: 0.8;
+}
+
+/* Not found in database */
+.tree-node--ghost {
+  opacity: 0.55;
+  border-style: dashed;
+  cursor: default;
+}
+.tree-node--ghost:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Small variant for grandparents */
+.tree-node--sm {
+  min-width: 100px; max-width: 130px;
+  padding: 8px 10px;
+}
+.tree-node--sm .tree-node__name { font-size: 10px; }
+.tree-node--sm .tree-node__icon { font-size: 18px !important; }
+.tree-node--sm .tree-node__meta { font-size: 9px; }
+
+/* Node internals */
+.tree-node__icon {
+  font-size: 24px;
+  margin-bottom: 4px;
+  color: var(--text-4);
+}
+.tree-node__name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  line-height: 1.3;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.tree-node__meta {
+  font-size: 10px;
+  color: var(--text-5);
+  font-family: var(--mono);
+}
+.tree-node__relation {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-6);
+  margin-bottom: 4px;
+}
+
+/* ── Generation Labels ───────────────────────────────────────────── */
+.tree-gen-label {
+  font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 2px;
+  color: var(--accent-light);
+  opacity: 0.5;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+/* ── Empty tree state ────────────────────────────────────────────── */
+.tree-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 60px 20px;
+  text-align: center;
+}
+.tree-empty__icon {
+  font-size: 48px; color: var(--text-6);
+}
+.tree-empty__title {
+  font-weight: 600; color: var(--text-4);
+}
+.tree-empty__desc {
+  font-size: 12px; color: var(--text-5); max-width: 320px;
+}
+
+/* ── Tree node animations ────────────────────────────────────────── */
+@keyframes treeNodeIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.tree-node { animation: treeNodeIn 0.4s var(--ease-smooth) backwards; }
+.tree-level:nth-child(1) .tree-node { animation-delay: 0.05s; }
+.tree-level:nth-child(2) .tree-node { animation-delay: 0.15s; }
+.tree-level:nth-child(3) .tree-node { animation-delay: 0.25s; }
+.tree-level:nth-child(4) .tree-node { animation-delay: 0.35s; }
+.tree-level:nth-child(5) .tree-node { animation-delay: 0.45s; }
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .tree-panel { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+  .tree-container { padding: 16px 12px 32px; overflow-x: auto; }
+  .tree-grandparents { gap: 20px; }
+  .tree-node { min-width: 90px; max-width: 120px; padding: 8px 8px; }
+  .tree-node__name { font-size: 10px; }
+  .tree-node--sm { min-width: 75px; max-width: 100px; padding: 6px; }
+  .tree-node--sm .tree-node__name { font-size: 9px; }
+  .tree-siblings-row { gap: 6px; }
+  .tree-branch { gap: 6px; }
+}
