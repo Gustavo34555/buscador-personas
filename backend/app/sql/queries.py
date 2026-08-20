@@ -276,16 +276,16 @@ BUSCAR_HERMANOS_RANKED = f"""
             -- Comparten apellido materno (herencia de la madre)
             + CASE WHEN :hijo_ap_mat != '' AND lower(p.ap_mat) = :hijo_ap_mat THEN 4000 ELSE 0 END
             -- Misma dirección física exacta de residencia
-            + CASE WHEN :hijo_direccion != '' AND lower(p.direccion) = :hijo_direccion THEN 4000 ELSE 0 END
+            + CASE WHEN :hijo_direccion != '' AND lower(p.direccion) = :hijo_direccion THEN 5000 ELSE 0 END
             -- Ubigeo nacimiento: distrito exacto > provincia > departamento
-            + CASE WHEN :hijo_ubigeo_nac != '' AND p.ubigeo_nac = :hijo_ubigeo_nac THEN 4000
-                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 2500
+            + CASE WHEN :hijo_ubigeo_nac != '' AND p.ubigeo_nac = :hijo_ubigeo_nac THEN 5000
+                   WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 3000
                    WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 2) = SUBSTRING(:hijo_ubigeo_nac, 1, 2) THEN 1200
                    ELSE 0
             END
             -- Ubigeo domicilio: distrito exacto > departamento
-            + CASE WHEN :hijo_ubigeo_dir != '' AND p.ubigeo_dir = :hijo_ubigeo_dir THEN 2500
-                   WHEN :hijo_ubigeo_dir != '' AND SPLIT_PART(p.ubigeo_dir, '-', 1) = SPLIT_PART(:hijo_ubigeo_dir, '-', 1) THEN 1000
+            + CASE WHEN :hijo_ubigeo_dir != '' AND p.ubigeo_dir = :hijo_ubigeo_dir THEN 3000
+                   WHEN :hijo_ubigeo_dir != '' AND SPLIT_PART(p.ubigeo_dir, '-', 1) = SPLIT_PART(:hijo_ubigeo_dir, '-', 1) THEN 1200
                    ELSE 0
             END
             -- Cercanía de edad (< 25 años)
@@ -298,13 +298,18 @@ BUSCAR_HERMANOS_RANKED = f"""
     WHERE p.search_vector @@ to_tsquery('simple', :tsq)
       AND p.dni != :dni_excluir
       AND (
-          -- Si el padre está registrado, el hermano DEBE tener el mismo padre y mismo apellido paterno
-          (:padre != '' AND lower(p.ap_pat) = :hijo_ap_pat AND (
+          -- CASO 1: Si la persona tiene PADRE y MADRE registrados -> El hermano DEBE tener AMBOS padres y AMBOS apellidos coincidentes
+          (:padre != '' AND :madre != '' AND lower(p.ap_pat) = :hijo_ap_pat AND lower(p.ap_mat) = :hijo_ap_mat AND (
+              (lower(p.padre) = :padre OR lower(p.padre) LIKE :padre || ' %' OR lower(p.padre) LIKE '% ' || :padre)
+              AND (lower(p.madre) = :madre OR lower(p.madre) LIKE :madre || ' %' OR lower(p.madre) LIKE '% ' || :madre)
+          ))
+          -- CASO 2: Si solo tiene padre registrado -> Coincidir en padre y apellido paterno
+          OR (:padre != '' AND :madre = '' AND lower(p.ap_pat) = :hijo_ap_pat AND (
               lower(p.padre) = :padre
               OR lower(p.padre) LIKE :padre || ' %'
               OR lower(p.padre) LIKE '% ' || :padre
           ))
-          -- O si no hay padre registrado, coincidir en madre y apellido materno
+          -- CASO 3: Si solo tiene madre registrada -> Coincidir en madre y apellido materno
           OR (:padre = '' AND :madre != '' AND lower(p.ap_mat) = :hijo_ap_mat AND (
               lower(p.madre) = :madre
               OR lower(p.madre) LIKE :madre || ' %'
