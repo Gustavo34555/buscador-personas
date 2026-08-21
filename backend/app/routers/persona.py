@@ -62,6 +62,11 @@ async def buscar_personas(
     background_tasks: BackgroundTasks,
     q: str = Query(..., min_length=2, description="Nombre o apellido a buscar"),
     limit: int = Query(20, ge=1, le=200, description="Máximo de resultados"),
+    sexo: str | None = Query(None, description="Filtro de sexo ('M' o 'F')"),
+    edad_min: int | None = Query(None, ge=0, le=120, description="Edad mínima en años"),
+    edad_max: int | None = Query(None, ge=0, le=120, description="Edad máxima en años"),
+    departamento: str | None = Query(None, description="Filtro por departamento o región"),
+    est_civil: str | None = Query(None, description="Filtro por estado civil"),
     _rate_limit: None = Depends(verify_search_rate_limit),
     _auth: None = Depends(require_api_key),
 ):
@@ -75,7 +80,7 @@ async def buscar_personas(
             detail="Búsqueda muy corta: mínimo 3 caracteres",
         )
 
-    cache_key = f"{q}:{limit}"
+    cache_key = f"{q}:{limit}:{sexo or ''}:{edad_min or ''}:{edad_max or ''}:{departamento or ''}:{est_civil or ''}"
     cached = buscar_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -103,6 +108,11 @@ async def buscar_personas(
             w2=w2,
             w3=w3,
             w4=w4,
+            sexo=sexo,
+            edad_min=edad_min,
+            edad_max=edad_max,
+            departamento=departamento,
+            est_civil=est_civil,
         )
     except SQLAlchemyError as e:
         logger.exception("Error al consultar la base de datos")

@@ -45,19 +45,45 @@ NC_BUSQUEDA_EXPR = "build_nombre_busqueda(ap_pat, ap_mat, nombres)"
 
 MAX_CANDIDATOS = 100   # Candidatos óptimos para ranking ultra-preciso en < 30ms
 
+# Cláusula de filtros avanzados para acotar candidatos y ranking
+FILTROS_BUSQUEDA_SQL = """
+    AND (
+        :filtro_sexo IS NULL OR :filtro_sexo = '' OR
+        (:filtro_sexo = 'M' AND (p.sexo::text = '1' OR upper(p.sexo::text) LIKE 'M%')) OR
+        (:filtro_sexo = 'F' AND (p.sexo::text = '2' OR upper(p.sexo::text) LIKE 'F%'))
+    )
+    AND (
+        :edad_min IS NULL OR (p.fecha_nac IS NOT NULL AND EXTRACT(YEAR FROM age(current_date, p.fecha_nac)) >= :edad_min)
+    )
+    AND (
+        :edad_max IS NULL OR (p.fecha_nac IS NOT NULL AND EXTRACT(YEAR FROM age(current_date, p.fecha_nac)) <= :edad_max)
+    )
+    AND (
+        :departamento IS NULL OR :departamento = '' OR
+        immutable_unaccent(coalesce(p.ubigeo_dir, '')) ILIKE '%' || immutable_unaccent(:departamento) || '%' OR
+        immutable_unaccent(coalesce(p.ubigeo_nac, '')) ILIKE '%' || immutable_unaccent(:departamento) || '%'
+    )
+    AND (
+        :est_civil IS NULL OR :est_civil = '' OR
+        immutable_unaccent(coalesce(p.est_civil, '')) ILIKE '%' || immutable_unaccent(:est_civil) || '%'
+    )
+"""
+
 # Selección ultrarrápida por índice GIN (search_vector)
-CANDIDATOS_TSQUERY = """
+CANDIDATOS_TSQUERY = f"""
     SELECT p.dni
     FROM personas p
     WHERE p.search_vector @@ to_tsquery('simple', :tsq)
+    {FILTROS_BUSQUEDA_SQL}
     LIMIT :cand_limit
 """
 
 # Selección directa de DNI exacto o prefijo
-CANDIDATOS_DNI = """
+CANDIDATOS_DNI = f"""
     SELECT p.dni
     FROM personas p
-    WHERE p.dni = :q OR p.dni LIKE :dni_prefix
+    WHERE (p.dni = :q OR p.dni LIKE :dni_prefix)
+    {FILTROS_BUSQUEDA_SQL}
     LIMIT :cand_limit
 """
 
@@ -74,6 +100,7 @@ RANK_PRECISO = f"""
             {NC_BUSQUEDA_EXPR} AS nc_busq
         FROM personas p
         WHERE p.dni IN :dni_list
+        {FILTROS_BUSQUEDA_SQL}
     )
     SELECT
         det.dni, det.ap_pat, det.ap_mat, det.nombres, det.fecha_nac, det.direccion,

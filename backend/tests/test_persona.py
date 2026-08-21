@@ -149,3 +149,73 @@ def test_c4_persona_encontrada(client, monkeypatch):
     assert body["persona"]["dni"] == "12345678"
 
 
+def test_buscar_con_filtros_sexo(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    fila["sexo"] = "Femenino"
+    _mock_engine(monkeypatch, FakeEngine([fila]))
+    res = client.get("/buscar", params={"q": "Maria", "sexo": "F"})
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+
+
+def test_buscar_con_filtros_edad(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    _mock_engine(monkeypatch, FakeEngine([fila]))
+    res = client.get("/buscar", params={"q": "Garcia", "edad_min": 18, "edad_max": 65})
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+
+
+def test_buscar_con_filtros_departamento_y_est_civil(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    _mock_engine(monkeypatch, FakeEngine([fila]))
+    res = client.get(
+        "/buscar",
+        params={
+            "q": "Garcia Perez",
+            "departamento": "Lima",
+            "est_civil": "Soltero",
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+
+
+def test_buscar_con_filtros_combinados(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    _mock_engine(monkeypatch, FakeEngine([fila]))
+    res = client.get(
+        "/buscar",
+        params={
+            "q": "Garcia",
+            "sexo": "M",
+            "edad_min": 20,
+            "edad_max": 50,
+            "departamento": "Lima",
+            "est_civil": "Soltero",
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+
+
+def test_buscar_filtros_cache_diferenciado(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    engine = FakeEngine([fila])
+    _mock_engine(monkeypatch, engine)
+
+    # Misma query con distinto sexo debe hacer dos consultas
+    client.get("/buscar", params={"q": "Garcia", "sexo": "M"})
+    client.get("/buscar", params={"q": "Garcia", "sexo": "F"})
+    assert engine.connect_count == 2
+
+    # Misma query con mismo sexo debe responder desde caché
+    client.get("/buscar", params={"q": "Garcia", "sexo": "M"})
+    assert engine.connect_count == 2
+
+
+

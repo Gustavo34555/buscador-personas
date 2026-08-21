@@ -35,43 +35,43 @@
 
   /* ── DOM refs ────────────────────────────────────────────── */
   const $ = (id) => document.getElementById(id);
-  const searchInput       = $('search-input');
-  const btnClearSearch    = $('btn-clear-search');
-  const modeDni           = $('mode-dni');
-  const modeNombre        = $('mode-nombre');
-  const limitRow          = $('limit-row');
-  const limiteSelect      = $('limite');
-  const resultsSection    = $('results-section');
-  const resultsList       = $('results-list');
-  const badgeCount        = $('badge-count');
-  const estadoTexto       = $('estado-texto');
-  const btnExportar       = $('btn-exportar');
-  const btnExportarJson   = $('btn-exportar-json');
-  const detailEmpty       = $('detail-empty');
-  const detailContent     = $('detail-content');
-  const emptyState        = $('empty-state');
-  const connectionStatus  = $('connection-status');
-  const toastContainer    = $('toast-container');
-  const qsModal           = $('quick-search-modal');
-  const qsInput           = $('quick-search-input');
-  const qsResults         = $('quick-search-results');
-  const mobileSheet       = $('mobile-sheet');
+  const searchInput = $('search-input');
+  const btnClearSearch = $('btn-clear-search');
+  const modeDni = $('mode-dni');
+  const modeNombre = $('mode-nombre');
+  const limitRow = $('limit-row');
+  const limiteSelect = $('limite');
+  const resultsSection = $('results-section');
+  const resultsList = $('results-list');
+  const badgeCount = $('badge-count');
+  const estadoTexto = $('estado-texto');
+  const btnExportar = $('btn-exportar');
+  const btnExportarJson = $('btn-exportar-json');
+  const detailEmpty = $('detail-empty');
+  const detailContent = $('detail-content');
+  const emptyState = $('empty-state');
+  const connectionStatus = $('connection-status');
+  const toastContainer = $('toast-container');
+  const qsModal = $('quick-search-modal');
+  const qsInput = $('quick-search-input');
+  const qsResults = $('quick-search-results');
+  const mobileSheet = $('mobile-sheet');
   const mobileSheetOverlay = $('mobile-sheet-overlay');
   const mobileSheetContent = $('mobile-sheet-content');
-  const treeModal          = $('tree-modal');
-  const treeViewport       = $('tree-viewport');
-  const treeCanvas         = $('tree-canvas');
-  const treeContainer      = $('tree-container');
-  const treeTitularBadge   = $('tree-titular-badge');
-  const treeStatsBar       = $('tree-stats-bar');
-  const treeZoomLabel      = $('tree-zoom-label');
-  const btnTreeZoomIn      = $('btn-tree-zoom-in');
-  const btnTreeZoomOut     = $('btn-tree-zoom-out');
-  const btnTreeReset       = $('btn-tree-reset');
-  const c4Modal            = $('c4-modal');
-  const c4Container        = $('c4-container');
-  const btnCloseC4         = $('btn-close-c4');
-  const btnPrintC4         = $('btn-print-c4');
+  const treeModal = $('tree-modal');
+  const treeViewport = $('tree-viewport');
+  const treeCanvas = $('tree-canvas');
+  const treeContainer = $('tree-container');
+  const treeTitularBadge = $('tree-titular-badge');
+  const treeStatsBar = $('tree-stats-bar');
+  const treeZoomLabel = $('tree-zoom-label');
+  const btnTreeZoomIn = $('btn-tree-zoom-in');
+  const btnTreeZoomOut = $('btn-tree-zoom-out');
+  const btnTreeReset = $('btn-tree-reset');
+  const c4Modal = $('c4-modal');
+  const c4Container = $('c4-container');
+  const btnCloseC4 = $('btn-close-c4');
+  const btnPrintC4 = $('btn-print-c4');
 
   let resultados = [];
   let personaSeleccionada = null;
@@ -1025,7 +1025,7 @@
       // Renderizado instantáneo (0ms)
       const ahora = new Date();
       const pad = (n) => String(n).padStart(2, '0');
-      const fEmision = `${pad(ahora.getDate())}/${pad(ahora.getMonth()+1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
+      const fEmision = `${pad(ahora.getDate())}/${pad(ahora.getMonth() + 1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
       const codeVerif = (String(dni) + Math.random().toString(36).substring(2, 8)).toUpperCase().slice(0, 12);
       const dataInstant = {
         codigo_certificado: `C4-${ahora.getFullYear()}-${dni}-${codeVerif.slice(0, 6)}`,
@@ -1138,7 +1138,7 @@
 
     const ahora = new Date();
     const pad = (n) => String(n).padStart(2, '0');
-    const fEmision = data.fecha_emision_c4 || `${pad(ahora.getDate())}/${pad(ahora.getMonth()+1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
+    const fEmision = data.fecha_emision_c4 || `${pad(ahora.getDate())}/${pad(ahora.getMonth() + 1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
     const codeVerif = data.codigo_verificacion || 'B02833881';
 
     const html = `
@@ -1453,7 +1453,7 @@
       url.searchParams.set('q', q);
       url.searchParams.set('mode', searchMode);
       window.history.replaceState({}, '', url);
-    } catch {}
+    } catch { }
 
     if (abortCtrl) abortCtrl.abort();
     abortCtrl = new AbortController();
@@ -1733,7 +1733,7 @@
   /* ── Service Worker (PWA) ────────────────────────────────── */
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js').catch(() => { });
     });
   }
 
