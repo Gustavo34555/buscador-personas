@@ -173,6 +173,14 @@
           <span class="btn-quick-search__label">Búsqueda rápida</span>
           <kbd>Ctrl+K</kbd>
         </button>
+        <button id="btn-theme-toggle" class="btn-icon" title="Cambiar tema (Claro / Oscuro)" aria-label="Cambiar tema">
+          <span class="material-symbols-outlined icon-theme-dark">dark_mode</span>
+          <span class="material-symbols-outlined icon-theme-light hidden">light_mode</span>
+        </button>
+        <button id="btn-pwa-install" class="btn-outline hidden" title="Instalar aplicación" aria-label="Instalar app">
+          <span class="material-symbols-outlined">download</span>
+          <span class="btn-pwa-label">Instalar</span>
+        </button>
         <div id="connection-status" class="connection-status" role="status" aria-label="Estado de conexión">
           <span class="status-dot status-dot--online"></span>
           <span class="status-label">Online</span>
@@ -293,23 +301,34 @@
   <!-- Footer -->
   <footer class="site-footer">
     <div class="footer-divider"></div>
-    <div class="footer-content">
+    <div class="footer-content" style="justify-content: center;">
       <div class="footer-left">
         <span class="material-symbols-outlined">terminal</span>
         <span>Buscador de Personas — Sistema de Consulta e Identificación</span>
       </div>
-      <div class="footer-right">
-        <a href="https://github.com/Gustavo34555/buscador-personas" target="_blank" rel="noopener" class="footer-link">
-          <span class="material-symbols-outlined">code</span>
-          <span>GitHub</span>
-        </a>
-        <a href="https://github.com/Gustavo34555" target="_blank" rel="noopener" class="footer-link">
-          <span class="material-symbols-outlined">person</span>
-          <span>Gustavo34555</span>
-        </a>
-      </div>
     </div>
   </footer>
+
+  <!-- Mobile Bottom Action Bar (Ergonomic Thumb Zone) -->
+  <nav id="mobile-bottom-bar" class="mobile-bottom-bar" aria-label="Navegación móvil">
+    <button id="mob-btn-search" class="mob-bar-btn mob-bar-btn--active" type="button" aria-label="Ir a búsqueda">
+      <span class="material-symbols-outlined">search</span>
+      <span>Buscar</span>
+    </button>
+    <button id="mob-btn-quick" class="mob-bar-btn" type="button" aria-label="Búsqueda rápida">
+      <span class="material-symbols-outlined">bolt</span>
+      <span>Rápida</span>
+    </button>
+    <button id="mob-btn-filters" class="mob-bar-btn" type="button" aria-label="Filtros avanzados">
+      <span class="material-symbols-outlined">tune</span>
+      <span>Filtros</span>
+      <span id="mob-filters-badge" class="mob-badge hidden">0</span>
+    </button>
+    <button id="mob-btn-theme" class="mob-bar-btn" type="button" aria-label="Cambiar tema">
+      <span class="material-symbols-outlined icon-mob-theme">dark_mode</span>
+      <span>Tema</span>
+    </button>
+  </nav>
 
   <script src="app.js"></script>
 </body>

@@ -70,16 +70,44 @@
   const btnTreeReset = $('btn-tree-reset');
   const c4Modal = $('c4-modal');
   const c4Container = $('c4-container');
-  const btnCloseC4 = $('btn-close-c4');
-  const btnPrintC4 = $('btn-print-c4');
+  const btnCloseC4         = $('btn-close-c4');
+  const btnPrintC4         = $('btn-print-c4');
+  const btnToggleFilters   = $('btn-toggle-filters');
+  const filtersPanel       = $('filters-panel');
+  const filtersActiveBadge = $('filters-active-badge');
+  const filtersActiveSummary = $('filters-active-summary');
+  const btnResetFilters    = $('btn-reset-filters');
+  const filterSexoGroup    = $('filter-sexo-group');
+  const filterEdadMin      = $('filter-edad-min');
+  const filterEdadMax      = $('filter-edad-max');
+  const filterDepartamento = $('filter-departamento');
+  const filterEstCivil     = $('filter-est-civil');
+  const btnThemeToggle     = $('btn-theme-toggle');
+  const mobBtnTheme        = $('mob-btn-theme');
+  const btnPwaInstall      = $('btn-pwa-install');
+  const mobBtnSearch       = $('mob-btn-search');
+  const mobBtnQuick        = $('mob-btn-quick');
+  const mobBtnFilters      = $('mob-btn-filters');
+  const mobFiltersBadge    = $('mob-filters-badge');
 
   let resultados = [];
   let personaSeleccionada = null;
   let searchMode = 'dni';
   let abortCtrl = null;
   let debounce = null;
+  let filterDebounce = null;
   let qsTimer = null;
   let qsAbort = null;
+  let deferredInstallPrompt = null;
+
+  // Filter state for name search
+  const filters = {
+    sexo: '',
+    edad_min: '',
+    edad_max: '',
+    departamento: '',
+    est_civil: '',
+  };
 
   // Tree graph interactive pan & zoom state
   let treeZoom = 1.0;
@@ -113,6 +141,95 @@
     if (!p.dni) return '-';
     return `10${p.dni}${p.dig_ruc || ''}`;
   }
+
+  /* ── Mobile Haptic & Clipboard & Share ───────────────────── */
+  function haptic(ms = 15) {
+    try {
+      if ('vibrate' in navigator) navigator.vibrate(ms);
+    } catch {}
+  }
+
+  async function copyText(text, label = 'Copiado al portapapeles') {
+    if (!text) return;
+    haptic(15);
+    try {
+      await navigator.clipboard.writeText(String(text).trim());
+      toast(label, 'success');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = String(text).trim();
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast(label, 'success');
+    }
+  }
+
+  async function sharePersona(p) {
+    if (!p) return;
+    haptic(18);
+    const n = nombre(p);
+    const edad = p.edad_anios != null ? `${p.edad_anios} años` : '-';
+    const nac = p.fecha_nac || '-';
+    const dir = p.direccion || 'No registrada';
+    const ubigeo = p.ubigeo_dir || p.ubigeo_nac || '-';
+    const text = `👤 ${n}\n🪪 DNI: ${p.dni}\n🎂 Nacimiento: ${nac} (${edad})\n📍 Dirección: ${dir}\n🗺️ Ubigeo: ${ubigeo}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Ficha: ${n}`,
+          text: text,
+        });
+        toast('Ficha compartida', 'success');
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          copyText(text, 'Datos copiados al portapapeles');
+        }
+      }
+    } else {
+      copyText(text, 'Datos copiados al portapapeles para compartir');
+    }
+  }
+
+  /* ── Theme Management (Dark / Light) ─────────────────────── */
+  function getSavedTheme() {
+    const saved = localStorage.getItem('bp_theme');
+    if (saved) return saved;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('bp_theme', theme); } catch {}
+    const isLight = theme === 'light';
+
+    if (btnThemeToggle) {
+      const iconDark = btnThemeToggle.querySelector('.icon-theme-dark');
+      const iconLight = btnThemeToggle.querySelector('.icon-theme-light');
+      if (iconDark && iconLight) {
+        iconDark.classList.toggle('hidden', isLight);
+        iconLight.classList.toggle('hidden', !isLight);
+      }
+    }
+    if (mobBtnTheme) {
+      const mobIcon = mobBtnTheme.querySelector('.icon-mob-theme');
+      if (mobIcon) mobIcon.textContent = isLight ? 'light_mode' : 'dark_mode';
+    }
+  }
+
+  function toggleTheme() {
+    haptic(15);
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    toast(next === 'light' ? 'Tema Claro activado' : 'Tema Oscuro activado', 'info');
+  }
+
+  if (btnThemeToggle) btnThemeToggle.addEventListener('click', toggleTheme);
+  if (mobBtnTheme) mobBtnTheme.addEventListener('click', toggleTheme);
+  applyTheme(getSavedTheme());
 
   /* ── Animated Counter ─────────────────────────────────────── */
   function animateValue(el, start, end, duration) {
@@ -209,6 +326,8 @@
     if (mode === 'dni') {
       searchInput.setAttribute('inputmode', 'numeric');
       searchInput.setAttribute('pattern', '[0-9]*');
+      if (filtersPanel) filtersPanel.classList.remove('open');
+      if (btnToggleFilters) btnToggleFilters.setAttribute('aria-expanded', 'false');
     } else {
       searchInput.setAttribute('inputmode', 'text');
       searchInput.removeAttribute('pattern');
@@ -216,11 +335,197 @@
     modeDni.classList.toggle('mode-btn--active', mode === 'dni');
     modeNombre.classList.toggle('mode-btn--active', mode === 'nombre');
     limitRow.classList.toggle('visible', mode === 'nombre');
+    updateFiltersUI();
     searchInput.focus();
   }
 
-  modeDni.addEventListener('click', () => { setMode('dni'); if (searchInput.value.trim()) search(); });
-  modeNombre.addEventListener('click', () => { setMode('nombre'); if (searchInput.value.trim()) search(); });
+  modeDni.addEventListener('click', () => { haptic(12); setMode('dni'); if (searchInput.value.trim()) search(); });
+  modeNombre.addEventListener('click', () => { haptic(12); setMode('nombre'); if (searchInput.value.trim()) search(); });
+
+  /* ── Filter Logic & Events ───────────────────────────────── */
+  function getActiveFiltersCount() {
+    let count = 0;
+    if (filters.sexo) count++;
+    if (filters.edad_min) count++;
+    if (filters.edad_max) count++;
+    if (filters.departamento) count++;
+    if (filters.est_civil) count++;
+    return count;
+  }
+
+  function updateFiltersUI() {
+    const count = getActiveFiltersCount();
+    if (filtersActiveBadge) {
+      filtersActiveBadge.textContent = count;
+      filtersActiveBadge.classList.toggle('hidden', count === 0);
+    }
+    if (mobFiltersBadge) {
+      mobFiltersBadge.textContent = count;
+      mobFiltersBadge.classList.toggle('hidden', count === 0);
+    }
+    if (btnToggleFilters) {
+      const isOpen = filtersPanel && filtersPanel.classList.contains('open');
+      btnToggleFilters.classList.toggle('active', count > 0 || isOpen);
+    }
+    if (filtersActiveSummary) {
+      if (count === 0) {
+        filtersActiveSummary.textContent = 'Sin filtros aplicados';
+      } else {
+        const parts = [];
+        if (filters.sexo) parts.push(`Sexo: ${filters.sexo === 'M' ? 'Masc.' : 'Fem.'}`);
+        if (filters.edad_min || filters.edad_max) {
+          if (filters.edad_min && filters.edad_max) parts.push(`Edad: ${filters.edad_min}-${filters.edad_max}a`);
+          else if (filters.edad_min) parts.push(`Edad: ≥${filters.edad_min}a`);
+          else parts.push(`Edad: ≤${filters.edad_max}a`);
+        }
+        if (filters.departamento) parts.push(`Dep: ${filters.departamento}`);
+        if (filters.est_civil) parts.push(`Civil: ${filters.est_civil}`);
+        filtersActiveSummary.textContent = `${count} filtro${count !== 1 ? 's' : ''}: ${parts.join(', ')}`;
+      }
+    }
+  }
+
+  function resetFilters(triggerSearch = true) {
+    haptic(15);
+    filters.sexo = '';
+    filters.edad_min = '';
+    filters.edad_max = '';
+    filters.departamento = '';
+    filters.est_civil = '';
+
+    if (filterSexoGroup) {
+      filterSexoGroup.querySelectorAll('.filter-pill').forEach((p) => {
+        p.classList.toggle('filter-pill--active', (p.getAttribute('data-sexo') || '') === '');
+      });
+    }
+    if (filterEdadMin) filterEdadMin.value = '';
+    if (filterEdadMax) filterEdadMax.value = '';
+    if (filterDepartamento) filterDepartamento.value = '';
+    if (filterEstCivil) filterEstCivil.value = '';
+
+    updateFiltersUI();
+
+    if (triggerSearch && searchInput.value.trim().length >= 3 && searchMode === 'nombre') {
+      search();
+    }
+  }
+
+  if (btnToggleFilters && filtersPanel) {
+    btnToggleFilters.addEventListener('click', () => {
+      haptic(12);
+      const isOpen = filtersPanel.classList.toggle('open');
+      btnToggleFilters.setAttribute('aria-expanded', String(isOpen));
+      updateFiltersUI();
+    });
+  }
+
+  if (filterSexoGroup) {
+    filterSexoGroup.querySelectorAll('.filter-pill').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        haptic(12);
+        filterSexoGroup.querySelectorAll('.filter-pill').forEach((p) => p.classList.remove('filter-pill--active'));
+        pill.classList.add('filter-pill--active');
+        filters.sexo = pill.getAttribute('data-sexo') || '';
+        updateFiltersUI();
+        if (searchInput.value.trim().length >= 3 && searchMode === 'nombre') {
+          search();
+        }
+      });
+    });
+  }
+
+  function onAgeFilterInput() {
+    clearTimeout(filterDebounce);
+    filterDebounce = setTimeout(() => {
+      filters.edad_min = filterEdadMin ? filterEdadMin.value.trim() : '';
+      filters.edad_max = filterEdadMax ? filterEdadMax.value.trim() : '';
+      updateFiltersUI();
+      if (searchInput.value.trim().length >= 3 && searchMode === 'nombre') {
+        search();
+      }
+    }, 400);
+  }
+
+  if (filterEdadMin) filterEdadMin.addEventListener('input', onAgeFilterInput);
+  if (filterEdadMax) filterEdadMax.addEventListener('input', onAgeFilterInput);
+
+  if (filterDepartamento) {
+    filterDepartamento.addEventListener('change', () => {
+      filters.departamento = filterDepartamento.value;
+      updateFiltersUI();
+      if (searchInput.value.trim().length >= 3 && searchMode === 'nombre') {
+        search();
+      }
+    });
+  }
+
+  if (filterEstCivil) {
+    filterEstCivil.addEventListener('change', () => {
+      filters.est_civil = filterEstCivil.value;
+      updateFiltersUI();
+      if (searchInput.value.trim().length >= 3 && searchMode === 'nombre') {
+        search();
+      }
+    });
+  }
+
+  if (btnResetFilters) {
+    btnResetFilters.addEventListener('click', () => {
+      resetFilters(true);
+      toast('Filtros restablecidos', 'info');
+    });
+  }
+
+  /* ── Mobile Bottom Navigation Bar Events ─────────────────── */
+  if (mobBtnSearch) {
+    mobBtnSearch.addEventListener('click', () => {
+      haptic(15);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      searchInput.focus();
+    });
+  }
+  if (mobBtnQuick) {
+    mobBtnQuick.addEventListener('click', () => {
+      haptic(15);
+      if (qsModal) {
+        qsModal.classList.add('open');
+        setTimeout(() => { qsInput.value = ''; qsInput.focus(); renderQs([]); }, 50);
+      }
+    });
+  }
+  if (mobBtnFilters) {
+    mobBtnFilters.addEventListener('click', () => {
+      haptic(15);
+      if (searchMode !== 'nombre') {
+        setMode('nombre');
+      }
+      if (btnToggleFilters) btnToggleFilters.click();
+      if (filtersPanel && filtersPanel.classList.contains('open')) {
+        filtersPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  }
+
+  /* ── PWA Installation Event ──────────────────────────────── */
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (btnPwaInstall) btnPwaInstall.classList.remove('hidden');
+  });
+
+  if (btnPwaInstall) {
+    btnPwaInstall.addEventListener('click', async () => {
+      if (!deferredInstallPrompt) return;
+      haptic(20);
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') {
+        toast('¡Buscador de Personas instalado!', 'success');
+      }
+      btnPwaInstall.classList.add('hidden');
+      deferredInstallPrompt = null;
+    });
+  }
 
   /* ── Status & loading ────────────────────────────────────── */
   function setEstado(t, type = 'normal') {
@@ -317,6 +622,10 @@
               <span class="material-symbols-outlined" style="font-size:15px">print</span>
               <span>C4</span>
             </button>
+            <button class="btn-inline-action btn-inline-action--share" data-inline-action="share" data-index="${i}">
+              <span class="material-symbols-outlined" style="font-size:15px">share</span>
+              <span>Compartir</span>
+            </button>
             <button class="btn-inline-action" data-inline-action="copy" data-index="${i}">
               <span class="material-symbols-outlined" style="font-size:15px">content_copy</span>
               <span>Copiar</span>
@@ -337,6 +646,8 @@
             openTreeModal(dni);
           } else if (action === 'c4') {
             openC4Modal(dni);
+          } else if (action === 'share') {
+            sharePersona(data[i]);
           } else if (action === 'copy') {
             const p = data[i];
             const fullSummary = `DATOS DE IDENTIFICACIÓN (DNI)\n` +
@@ -347,13 +658,14 @@
               `FECHA NAC: ${p.fecha_nac || '-'}\n` +
               `DIRECCIÓN: ${p.direccion || '-'}\n` +
               `UBIGEO: ${p.ubigeo_dir || '-'}`;
-            navigator.clipboard.writeText(fullSummary).then(() => toast('Ficha copiada', 'success'));
+            copyText(fullSummary, 'Ficha copiada al portapapeles');
           }
           return;
         }
 
         // On mobile (<= 768px): toggle inline expansion smoothly without intrusive modal popups
         if (window.innerWidth <= 768) {
+          haptic(10);
           const isExpanded = el.classList.contains('result-item--expanded');
           resultsList.querySelectorAll('.result-item').forEach(item => item.classList.remove('result-item--expanded'));
           if (!isExpanded) {
@@ -448,6 +760,10 @@
 
         <!-- Quick Action Toolbar -->
         <div class="detail-toolbar">
+          <button class="btn-action btn-share" id="btn-share-detail" title="Compartir ficha (WhatsApp / Redes)">
+            <span class="material-symbols-outlined">share</span>
+            <span>Compartir</span>
+          </button>
           <button class="btn-action" id="btn-copy-full" title="Copiar ficha completa como texto">
             <span class="material-symbols-outlined">assignment</span>
             <span>Copiar Ficha</span>
@@ -462,7 +778,7 @@
           </button>
           <button class="btn-action" id="btn-print-sheet" title="Imprimir Certificado C4 Oficial (PDF)">
             <span class="material-symbols-outlined">print</span>
-            <span>Imprimir</span>
+            <span>C4 PDF</span>
           </button>
         </div>
 
@@ -602,13 +918,14 @@
   }
 
   function bindDetailEvents(container, p) {
+    const btnShare = container.querySelector('#btn-share-detail');
+    if (btnShare) {
+      btnShare.addEventListener('click', () => sharePersona(p));
+    }
+
     const copyBtn = container.querySelector('#btn-copy-dni');
     if (copyBtn) {
-      copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(String(p.dni)).then(() => {
-          toast('DNI copiado al portapapeles', 'success');
-        }).catch(() => toast('Error al copiar', 'error'));
-      });
+      copyBtn.addEventListener('click', () => copyText(p.dni, 'DNI copiado al portapapeles'));
     }
 
     const copyFullBtn = container.querySelector('#btn-copy-full');
@@ -628,18 +945,24 @@
           `Padre: ${p.padre || '-'}`,
           `Madre: ${p.madre || '-'}`,
           `Dirección: ${p.direccion || '-'}`,
-          `Ubigeo Domicilio: ${p.ubigeo_dir || '-'}`,
-          `Ubigeo Nacimiento: ${p.ubigeo_nac || '-'}`,
-          `Fch. Inscripción: ${p.fch_inscripcion || '-'}`,
-          `Fch. Emisión: ${p.fch_emision || '-'}`,
-          `Fch. Caducidad: ${p.fch_caducidad || '-'}`
+          `Ubigeo Dom: ${p.ubigeo_dir || '-'}`,
+          `Ubigeo Nac: ${p.ubigeo_nac || '-'}`,
         ].join('\n');
-
-        navigator.clipboard.writeText(fullSummary).then(() => {
-          toast('Ficha completa copiada', 'success');
-        }).catch(() => toast('Error al copiar', 'error'));
+        copyText(fullSummary, 'Ficha completa copiada');
       });
     }
+
+    // One-Tap Copy on field pills
+    container.querySelectorAll('.field-pill:not(.field-pill--interactive)').forEach((pill) => {
+      pill.style.cursor = 'pointer';
+      pill.title = 'Toca para copiar este dato';
+      pill.addEventListener('click', () => {
+        const text = pill.innerText.replace(/^[a-zA-Z\s.]+:\s*/, '').trim();
+        pill.classList.add('copy-pulse');
+        setTimeout(() => pill.classList.remove('copy-pulse'), 350);
+        copyText(text || pill.innerText.trim(), 'Dato copiado');
+      });
+    });
 
     const printBtn = container.querySelector('#btn-print-sheet');
     if (printBtn) {
@@ -1045,10 +1368,31 @@
 
     c4Modal.classList.add('open');
     document.body.style.overflow = 'hidden';
+    setTimeout(adjustC4Scale, 30);
 
     // 2. Traer firma oficial en segundo plano (sin bloquear al usuario)
     fetchC4Certificate(dni);
   }
+
+  function adjustC4Scale() {
+    const sheet = c4Container ? c4Container.querySelector('.reniec-sheet') : null;
+    if (!sheet) return;
+    const body = c4Container.closest('.c4-panel__body') || c4Container;
+    const availableWidth = body.clientWidth - 20;
+    const originalWidth = 820;
+    if (availableWidth < originalWidth && availableWidth > 200) {
+      const scale = availableWidth / originalWidth;
+      sheet.style.transform = `scale(${scale})`;
+      sheet.style.transformOrigin = 'top center';
+      sheet.style.marginBottom = `-${(1 - scale) * sheet.offsetHeight}px`;
+    } else {
+      sheet.style.transform = '';
+      sheet.style.transformOrigin = '';
+      sheet.style.marginBottom = '';
+    }
+  }
+
+  window.addEventListener('resize', adjustC4Scale);
 
   function closeC4Modal() {
     if (!c4Modal) return;
@@ -1452,6 +1796,15 @@
       const url = new URL(window.location);
       url.searchParams.set('q', q);
       url.searchParams.set('mode', searchMode);
+      if (searchMode === 'nombre') {
+        if (filters.sexo) url.searchParams.set('sexo', filters.sexo); else url.searchParams.delete('sexo');
+        if (filters.edad_min) url.searchParams.set('edad_min', filters.edad_min); else url.searchParams.delete('edad_min');
+        if (filters.edad_max) url.searchParams.set('edad_max', filters.edad_max); else url.searchParams.delete('edad_max');
+        if (filters.departamento) url.searchParams.set('dep', filters.departamento); else url.searchParams.delete('dep');
+        if (filters.est_civil) url.searchParams.set('civil', filters.est_civil); else url.searchParams.delete('civil');
+      } else {
+        ['sexo', 'edad_min', 'edad_max', 'dep', 'civil'].forEach((p) => url.searchParams.delete(p));
+      }
       window.history.replaceState({}, '', url);
     } catch { }
 
@@ -1479,7 +1832,17 @@
           data = [await res.json()]; toast('Persona localizada con éxito', 'success');
         }
       } else {
-        const res = await fetch(`${API_BASE}/buscar?q=${encodeURIComponent(q)}&limit=${limiteSelect.value}`, {
+        const params = new URLSearchParams({
+          q: q,
+          limit: limiteSelect.value,
+        });
+        if (filters.sexo) params.set('sexo', filters.sexo);
+        if (filters.edad_min) params.set('edad_min', filters.edad_min);
+        if (filters.edad_max) params.set('edad_max', filters.edad_max);
+        if (filters.departamento) params.set('departamento', filters.departamento);
+        if (filters.est_civil) params.set('est_civil', filters.est_civil);
+
+        const res = await fetch(`${API_BASE}/buscar?${params.toString()}`, {
           signal: abortCtrl.signal, headers: apiHeaders(),
         });
         if (!res.ok) {
@@ -1751,11 +2114,51 @@
     const urlParams = new URLSearchParams(window.location.search);
     const initialQ = urlParams.get('q');
     const initialMode = urlParams.get('mode');
+    const initialSexo = urlParams.get('sexo');
+    const initialEdadMin = urlParams.get('edad_min');
+    const initialEdadMax = urlParams.get('edad_max');
+    const initialDep = urlParams.get('dep');
+    const initialCivil = urlParams.get('civil');
+
+    if (initialSexo && (initialSexo === 'M' || initialSexo === 'F')) {
+      filters.sexo = initialSexo;
+      if (filterSexoGroup) {
+        filterSexoGroup.querySelectorAll('.filter-pill').forEach((p) => {
+          p.classList.toggle('filter-pill--active', (p.getAttribute('data-sexo') || '') === initialSexo);
+        });
+      }
+    }
+    if (initialEdadMin) {
+      filters.edad_min = initialEdadMin;
+      if (filterEdadMin) filterEdadMin.value = initialEdadMin;
+    }
+    if (initialEdadMax) {
+      filters.edad_max = initialEdadMax;
+      if (filterEdadMax) filterEdadMax.value = initialEdadMax;
+    }
+    if (initialDep) {
+      filters.departamento = initialDep.toUpperCase();
+      if (filterDepartamento) filterDepartamento.value = initialDep.toUpperCase();
+    }
+    if (initialCivil) {
+      filters.est_civil = initialCivil.toUpperCase();
+      if (filterEstCivil) filterEstCivil.value = initialCivil.toUpperCase();
+    }
 
     if (initialMode === 'nombre' || initialMode === 'dni') {
       setMode(initialMode);
     } else {
       setMode('dni');
+    }
+
+    const hasActiveFilters = getActiveFiltersCount() > 0;
+    updateFiltersUI();
+    if (hasActiveFilters && filtersPanel && searchMode === 'nombre') {
+      filtersPanel.classList.add('open');
+      if (btnToggleFilters) {
+        btnToggleFilters.setAttribute('aria-expanded', 'true');
+        btnToggleFilters.classList.add('active');
+      }
     }
 
     checkConnection();
