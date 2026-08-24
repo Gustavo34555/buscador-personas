@@ -6,7 +6,7 @@ services:
     container_name: buscador_db
     environment:
       POSTGRES_USER: usuario
-      POSTGRES_PASSWORD: contraseña
+      POSTGRES_PASSWORD: contrasena
       POSTGRES_DB: buscador_personas
     ports:
       - "5432:5432"
@@ -28,7 +28,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+psycopg2://usuario:contraseña@db:5432/buscador_personas
+      - DATABASE_URL=postgresql+psycopg2://usuario:contrasena@db:5432/buscador_personas
       # Configura RUC_API_KEY y otras variables en un archivo .env
     env_file:
       - ./backend/.env.example # Usa el example por defecto para desarrollo
