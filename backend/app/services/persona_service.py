@@ -33,24 +33,10 @@ def buscar_personas(
     w2: str = "",
     w3: str = "",
     w4: str = "",
-    sexo: str | None = None,
-    edad_min: int | None = None,
-    edad_max: int | None = None,
-    departamento: str | None = None,
-    est_civil: str | None = None,
 ):
     clean_words = [_sanitize_word(w) for w in q_lower.split() if _sanitize_word(w)]
     if not clean_words and not q.isdigit():
         return []
-
-    # Normalizar filtro de sexo a 'M', 'F' o None
-    filtro_sexo = None
-    if sexo:
-        s_norm = str(sexo).strip().upper()
-        if s_norm in ("M", "MASCULINO", "1"):
-            filtro_sexo = "M"
-        elif s_norm in ("F", "FEMENINO", "2"):
-            filtro_sexo = "F"
 
     params = {
         "q": q,
@@ -64,11 +50,6 @@ def buscar_personas(
         "limit": limit,
         "num_words_int": len(clean_words),
         "cand_limit": MAX_CANDIDATOS,
-        "filtro_sexo": filtro_sexo,
-        "edad_min": edad_min,
-        "edad_max": edad_max,
-        "departamento": departamento.strip() if departamento else None,
-        "est_civil": est_civil.strip() if est_civil else None,
     }
 
     with engine.connect() as conn:
@@ -91,7 +72,7 @@ def buscar_personas(
                 ts_exact = clean_words[0]
                 rows = conn.execute(
                     text(CANDIDATOS_TSQUERY),
-                    {**params, "tsq": ts_exact},
+                    {"tsq": ts_exact, "cand_limit": MAX_CANDIDATOS},
                 ).mappings().all()
                 for r in rows:
                     dni = r.get("dni")
@@ -103,7 +84,7 @@ def buscar_personas(
                     ts_pref = f"{clean_words[0]}:*"
                     rows = conn.execute(
                         text(CANDIDATOS_TSQUERY),
-                        {**params, "tsq": ts_pref},
+                        {"tsq": ts_pref, "cand_limit": MAX_CANDIDATOS},
                     ).mappings().all()
                     for r in rows:
                         dni = r.get("dni")
@@ -115,7 +96,7 @@ def buscar_personas(
                 ts_and = " & ".join(clean_words)
                 rows = conn.execute(
                     text(CANDIDATOS_TSQUERY),
-                    {**params, "tsq": ts_and},
+                    {"tsq": ts_and, "cand_limit": MAX_CANDIDATOS},
                 ).mappings().all()
                 for r in rows:
                     dni = r.get("dni")
@@ -127,7 +108,7 @@ def buscar_personas(
                     ts_last_pref = " & ".join(clean_words[:-1] + [f"{clean_words[-1]}:*"])
                     rows = conn.execute(
                         text(CANDIDATOS_TSQUERY),
-                        {**params, "tsq": ts_last_pref},
+                        {"tsq": ts_last_pref, "cand_limit": MAX_CANDIDATOS},
                     ).mappings().all()
                     for r in rows:
                         dni = r.get("dni")
@@ -139,7 +120,7 @@ def buscar_personas(
                     ts_or = " | ".join(clean_words)
                     rows = conn.execute(
                         text(CANDIDATOS_TSQUERY),
-                        {**params, "tsq": ts_or},
+                        {"tsq": ts_or, "cand_limit": MAX_CANDIDATOS},
                     ).mappings().all()
                     for r in rows:
                         dni = r.get("dni")
