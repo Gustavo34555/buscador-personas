@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import ALLOWED_ORIGINS, FRONTEND_TOKEN_SECRET, RUC_API_KEY
 from app.db import engine
-from app.routers import persona, ruc
+from app.routers import admin, auth, persona, ruc
 from app.schemas import FrontendTokenResponse, StatusResponse
 from app.security import create_frontend_token
 from app.services.ruc_service import RucService
@@ -76,6 +76,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(persona.router)
 app.include_router(ruc.router)
 

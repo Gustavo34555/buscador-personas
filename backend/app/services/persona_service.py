@@ -18,8 +18,19 @@ def obtener_por_dni(dni: str):
         return conn.execute(text(PERSONA_POR_DNI), {"dni": dni}).mappings().first()
 
 
+import unicodedata
+
+def _unaccent(s: str) -> str:
+    """Remueve acentos, diacríticos y normaliza la letra eñe para búsquedas FTS precisas."""
+    if not s:
+        return ""
+    nfkd = unicodedata.normalize("NFKD", str(s))
+    no_comb = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return no_comb.replace("ñ", "n").replace("Ñ", "n")
+
+
 def _sanitize_word(w: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]", "", w).strip()
+    return re.sub(r"[^a-zA-Z0-9]", "", _unaccent(w)).strip()
 
 
 def buscar_personas(
@@ -290,11 +301,11 @@ def _buscar_padre(conn, padre_nombre, hijo_fila):
     """Busca al padre usando ranking multi-factor con filtro GIN y validación biológica."""
     from app.sql.queries import BUSCAR_PADRE_RANKED
 
-    padre_nombre_clean = padre_nombre.strip().lower()
+    padre_nombre_clean = _unaccent(padre_nombre).strip().lower()
     if not padre_nombre_clean:
         return None
 
-    hijo_ap_pat = (hijo_fila.get("ap_pat") or "").lower()
+    hijo_ap_pat = (hijo_fila.get("ap_pat") or "").strip()
     primer_nombre = padre_nombre_clean.split()[0] if padre_nombre_clean.split() else ""
     tsq = _build_tsq(primer_nombre, hijo_ap_pat)
     if not tsq:
@@ -303,8 +314,8 @@ def _buscar_padre(conn, padre_nombre, hijo_fila):
     fecha_nac = hijo_fila.get("fecha_nac")
     params = {
         "tsq": tsq,
-        "padre_nombre": padre_nombre_clean,
-        "hijo_ap_pat": hijo_ap_pat,
+        "padre_nombre": primer_nombre,
+        "hijo_ap_pat": hijo_ap_pat.lower(),
         "hijo_ubigeo_nac": (hijo_fila.get("ubigeo_nac") or ""),
         "hijo_ubigeo_dir": (hijo_fila.get("ubigeo_dir") or ""),
         "hijo_direccion": (hijo_fila.get("direccion") or "").strip().lower(),
@@ -314,7 +325,9 @@ def _buscar_padre(conn, padre_nombre, hijo_fila):
     try:
         fila = conn.execute(text(BUSCAR_PADRE_RANKED), params).mappings().first()
         if fila and _es_edad_progenitor_valida(fila.get("fecha_nac"), fecha_nac):
-            return _fila_a_nodo(fila)
+            nodo = _fila_a_nodo(fila)
+            nodo["encontrado"] = True
+            return nodo
         return None
     except Exception:
         return None
@@ -324,11 +337,11 @@ def _buscar_madre(conn, madre_nombre, hijo_fila):
     """Busca a la madre usando ranking multi-factor con filtro GIN y validación biológica."""
     from app.sql.queries import BUSCAR_MADRE_RANKED
 
-    madre_nombre_clean = madre_nombre.strip().lower()
+    madre_nombre_clean = _unaccent(madre_nombre).strip().lower()
     if not madre_nombre_clean:
         return None
 
-    hijo_ap_mat = (hijo_fila.get("ap_mat") or "").lower()
+    hijo_ap_mat = (hijo_fila.get("ap_mat") or "").strip()
     primer_nombre = madre_nombre_clean.split()[0] if madre_nombre_clean.split() else ""
     tsq = _build_tsq(primer_nombre, hijo_ap_mat)
     if not tsq:
@@ -337,8 +350,8 @@ def _buscar_madre(conn, madre_nombre, hijo_fila):
     fecha_nac = hijo_fila.get("fecha_nac")
     params = {
         "tsq": tsq,
-        "madre_nombre": madre_nombre_clean,
-        "hijo_ap_mat": hijo_ap_mat,
+        "madre_nombre": primer_nombre,
+        "hijo_ap_mat": hijo_ap_mat.lower(),
         "hijo_ubigeo_nac": (hijo_fila.get("ubigeo_nac") or ""),
         "hijo_ubigeo_dir": (hijo_fila.get("ubigeo_dir") or ""),
         "hijo_direccion": (hijo_fila.get("direccion") or "").strip().lower(),
@@ -348,7 +361,9 @@ def _buscar_madre(conn, madre_nombre, hijo_fila):
     try:
         fila = conn.execute(text(BUSCAR_MADRE_RANKED), params).mappings().first()
         if fila and _es_edad_progenitor_valida(fila.get("fecha_nac"), fecha_nac, min_dif=13, max_dif=55):
-            return _fila_a_nodo(fila)
+            nodo = _fila_a_nodo(fila)
+            nodo["encontrado"] = True
+            return nodo
         return None
     except Exception:
         return None
@@ -359,7 +374,7 @@ def construir_arbol(dni: str):
 
     Factores de correlación y validación:
     - Regla biológica estricta: progenitores > descendientes (mínimo 13 años de diferencia)
-    - Nombre de pila del padre/madre
+    - Nombre de pila del padre/madre con desacentuación FTS
     - Herencia de apellidos (ap_pat del padre → ap_pat del hijo, ap_pat de madre → ap_mat del hijo)
     - Correlación geográfica por Ubigeo de nacimiento y domicilio
     - Correlación de dirección física exacta
@@ -398,7 +413,7 @@ def construir_arbol(dni: str):
             padre_nodo = _buscar_padre(conn, padre_texto, persona_fila)
             if padre_nodo:
                 resultado["padre"] = padre_nodo
-                # Abuelos paternos (validados respecto a la edad del padre)
+                # Abuelos paternos
                 abuelo_p_nombre = padre_nodo.get("padre")
                 abuela_p_nombre = padre_nodo.get("madre")
                 if abuelo_p_nombre and abuelo_p_nombre.strip():
@@ -422,7 +437,7 @@ def construir_arbol(dni: str):
             madre_nodo = _buscar_madre(conn, madre_texto, persona_fila)
             if madre_nodo:
                 resultado["madre"] = madre_nodo
-                # Abuelos maternos (validados respecto a la edad de la madre)
+                # Abuelos maternos
                 abuelo_m_nombre = madre_nodo.get("padre")
                 abuela_m_nombre = madre_nodo.get("madre")
                 if abuelo_m_nombre and abuelo_m_nombre.strip():
@@ -440,9 +455,9 @@ def construir_arbol(dni: str):
             else:
                 resultado["madre"] = _nodo_solo_nombre(madre_texto, "Femenino")
 
-        # 4. Buscar hermanos (mismo padre + apellidos + ubigeo + dirección + edad cercana)
-        ap_pat_hijo = (persona_fila.get("ap_pat") or "").lower()
-        ap_mat_hijo = (persona_fila.get("ap_mat") or "").lower()
+        # 4. Buscar hermanos
+        ap_pat_hijo = (persona_fila.get("ap_pat") or "").strip()
+        ap_mat_hijo = (persona_fila.get("ap_mat") or "").strip()
 
         tsq_hermanos = _build_tsq(ap_pat_hijo, ap_mat_hijo) or _build_tsq(ap_pat_hijo)
         if tsq_hermanos:
@@ -453,8 +468,8 @@ def construir_arbol(dni: str):
                     "dni_excluir": dni,
                     "padre": (padre_texto or "").strip().lower(),
                     "madre": (madre_texto or "").strip().lower(),
-                    "hijo_ap_pat": ap_pat_hijo,
-                    "hijo_ap_mat": ap_mat_hijo,
+                    "hijo_ap_pat": ap_pat_hijo.lower(),
+                    "hijo_ap_mat": ap_mat_hijo.lower(),
                     "hijo_ubigeo_nac": (persona_fila.get("ubigeo_nac") or ""),
                     "hijo_ubigeo_dir": (persona_fila.get("ubigeo_dir") or ""),
                     "hijo_direccion": (persona_fila.get("direccion") or "").strip().lower(),
@@ -463,19 +478,16 @@ def construir_arbol(dni: str):
             ).mappings().all()
             resultado["hermanos"] = [_fila_a_nodo(h) for h in hermanos_filas]
 
-        # 5. Buscar hijos: cruce integral de datos compartidos (nombre progenitor, apellidos, ubigeos, dirección, edad)
+        # 5. Buscar hijos
         nombres_persona = (persona_fila.get("nombres") or "").strip().lower()
         ap_pat_persona = ap_pat_hijo
         ap_mat_persona = ap_mat_hijo
         sexo_persona = str(persona_fila.get("sexo") or "")
         es_padre = sexo_persona in ("1", "Masculino")
 
-        primer_nombre_persona = nombres_persona.split()[0] if nombres_persona.split() else ""
-        
-        # El apellido heredado está presente en el search_vector del hijo
+        primer_nombre_persona = _unaccent(nombres_persona.split()[0]) if nombres_persona.split() else ""
         tsq_hijos = _build_tsq(ap_pat_persona)
 
-        # Solo buscar hijos si se conoce la fecha de nacimiento y la persona tiene edad suficiente
         d_persona = _parse_date(fecha_nac_persona)
         puede_tener_hijos = d_persona is not None and (date.today() - d_persona).days / 365.25 >= 13
 
@@ -486,9 +498,9 @@ def construir_arbol(dni: str):
                     "tsq": tsq_hijos,
                     "progenitor_dni": dni,
                     "progenitor_nombre": primer_nombre_persona,
-                    "progenitor_nombre_completo": nombres_persona,
-                    "progenitor_ap_pat": ap_pat_persona,
-                    "progenitor_ap_mat": ap_mat_persona,
+                    "progenitor_nombre_completo": _unaccent(nombres_persona),
+                    "progenitor_ap_pat": ap_pat_persona.lower(),
+                    "progenitor_ap_mat": ap_mat_persona.lower(),
                     "es_padre": es_padre,
                     "progenitor_ubigeo_nac": (persona_fila.get("ubigeo_nac") or ""),
                     "progenitor_ubigeo_dir": (persona_fila.get("ubigeo_dir") or ""),
@@ -502,103 +514,27 @@ def construir_arbol(dni: str):
                 dict(h) for h in hijos_filas
                 if _es_edad_hijo_valida(h.get("fecha_nac"), fecha_nac_persona)
                 and _es_nombre_progenitor_compatible(
-                    h.get(campo_progenitor),
-                    nombres_persona,
-                    ap_pat_persona,
-                    ap_mat_persona
+                    _unaccent(h.get(campo_progenitor) or ""),
+                    _unaccent(nombres_persona),
+                    _unaccent(ap_pat_persona),
+                    _unaccent(ap_mat_persona)
                 )
             ]
 
-            # ══════════════════════════════════════════════════════════════════
-            # TRIANGULACIÓN Y CORRELACIÓN ESTRICTA PADRE-MADRE-HIJO
-            # ══════════════════════════════════════════════════════════════════
             if hijos_candidatos:
-                # 1. Agrupar candidatos por la unidad parental de la otra rama:
-                #    Si el titular es PADRE -> agrupar por (madre_nombre, ap_mat)
-                #    Si el titular es MADRE -> agrupar por (padre_nombre, ap_pat)
-                campo_pareja_nombre = "madre" if es_padre else "padre"
-                campo_pareja_apellido = "ap_mat" if es_padre else "ap_pat"
-
-                dir_padre = (persona_fila.get("direccion") or "").strip().lower()
-                ubigeo_nac_padre = persona_fila.get("ubigeo_nac") or ""
-                ubigeo_dir_padre = persona_fila.get("ubigeo_dir") or ""
-
-                from collections import defaultdict
-                familias_por_pareja = defaultdict(list)
-                pareja_validada_cache = {}
-
-                for h in hijos_candidatos:
-                    nom_pareja = (h.get(campo_pareja_nombre) or "").strip().lower()
-                    ap_pareja = (h.get(campo_pareja_apellido) or "").strip().lower()
-                    clave_pareja = (nom_pareja, ap_pareja)
-                    familias_por_pareja[clave_pareja].append(h)
-
-                # 2. Evaluar y calificar cada relación de pareja (Padre + Madre)
-                hijos_calificados = []
-                for (nom_pareja, ap_pareja), lista_hijos in familias_por_pareja.items():
-                    # Verificar si la pareja existe en la BD en la misma zona
-                    pareja_bd = None
-                    if nom_pareja and ap_pareja:
-                        clave_str = f"{nom_pareja}:{ap_pareja}"
-                        if clave_str not in pareja_validada_cache:
-                            pareja_validada_cache[clave_str] = _buscar_pareja_en_bd(
-                                conn, nom_pareja, ap_pareja, persona_fila, es_padre
-                            )
-                        pareja_bd = pareja_validada_cache[clave_str]
-
-                    # Calcular afinidad global de esta unidad familiar
-                    afinidad_pareja = 0
-                    if pareja_bd:
-                        # Pareja confirmada en BD con misma geolocalización (+8000)
-                        afinidad_pareja += 8000
-                    
-                    # Número de hijos compartidos en la misma unión (+2000 por cada hermano)
-                    if len(lista_hijos) > 1:
-                        afinidad_pareja += min(len(lista_hijos) * 2000, 6000)
-
-                    for h in lista_hijos:
-                        bonus = afinidad_pareja
-                        # A. Mismo distrito de nacimiento (+3000)
-                        if ubigeo_nac_padre and h.get("ubigeo_nac") == ubigeo_nac_padre:
-                            bonus += 3000
-                        # B. Mismo distrito de domicilio (+2500)
-                        if ubigeo_dir_padre and h.get("ubigeo_dir") == ubigeo_dir_padre:
-                            bonus += 2500
-                        # C. Misma dirección o localidad compartida (+3500)
-                        dir_hijo = (h.get("direccion") or "").strip().lower()
-                        if dir_padre and dir_hijo and (dir_padre == dir_hijo or dir_padre in dir_hijo or dir_hijo in dir_padre):
-                            bonus += 3500
-
-                        h["score_total"] = (h.get("score") or 0) + bonus
-                        hijos_calificados.append(h)
-
-                # 3. Filtrar clúster con la mayor cantidad de datos compartidos y relación padre-madre
-                if hijos_calificados:
-                    max_score_total = max(h["score_total"] for h in hijos_calificados)
-                    
-                    # Umbral estricto: Solo aceptar candidatos que demuestren correlación padre-madre
-                    # o fuerte arraigo geográfico/habitacional compartido (score_total >= 25000)
-                    if max_score_total >= 32000:
-                        hijos_filtrados = [
-                            h for h in hijos_calificados
-                            if h["score_total"] >= max_score_total - 6000 and h["score_total"] >= 25000
-                        ]
-                    elif max_score_total >= 25000:
-                        hijos_filtrados = [
-                            h for h in hijos_calificados
-                            if h["score_total"] >= max_score_total - 4000 and h["score_total"] >= 25000
-                        ]
-                    else:
-                        hijos_filtrados = []
-
-                    # 4. Ordenar cronológicamente (de mayor a menor por fecha de nacimiento)
-                    hijos_filtrados.sort(
-                        key=lambda x: str(x.get("fecha_nac") or "1900-01-01")
-                    )
-
-                    resultado["hijos"] = [_fila_a_nodo(h) for h in hijos_filtrados]
+                # Filtrar con umbral de coherencia
+                max_score = max(h.get("score", 0) for h in hijos_candidatos)
+                hijos_filtrados = [
+                    h for h in hijos_candidatos
+                    if h.get("score", 0) >= 15000 or (max_score > 0 and h.get("score", 0) >= max_score - 8000)
+                ]
+                hijos_filtrados.sort(
+                    key=lambda x: str(x.get("fecha_nac") or "1900-01-01")
+                )
+                resultado["hijos"] = [_fila_a_nodo(h) for h in hijos_filtrados]
 
         return resultado
+
 
 
 

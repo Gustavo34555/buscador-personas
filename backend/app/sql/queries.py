@@ -335,52 +335,50 @@ BUSCAR_HIJOS_RANKED = f"""
         {EDAD_COLS},
         (
             -- 1. Coincidencia de nombre del progenitor en campo padre o madre
-            CASE WHEN :es_padre AND :progenitor_nombre_completo != '' AND lower(p.padre) = :progenitor_nombre_completo THEN 15000
-                 WHEN NOT :es_padre AND :progenitor_nombre_completo != '' AND lower(p.madre) = :progenitor_nombre_completo THEN 15000
-                 WHEN :es_padre AND lower(p.padre) = :progenitor_nombre THEN 10000
-                 WHEN NOT :es_padre AND lower(p.madre) = :progenitor_nombre THEN 10000
-                 WHEN :es_padre AND lower(p.padre) LIKE :progenitor_nombre || ' %' THEN 8000
-                 WHEN NOT :es_padre AND lower(p.madre) LIKE :progenitor_nombre || ' %' THEN 8000
-                 WHEN :es_padre AND lower(p.padre) LIKE '% ' || :progenitor_nombre THEN 6000
-                 WHEN NOT :es_padre AND lower(p.madre) LIKE '% ' || :progenitor_nombre THEN 6000
-                 WHEN :es_padre AND lower(p.padre) LIKE '% ' || :progenitor_nombre || ' %' THEN 5000
-                 WHEN NOT :es_padre AND lower(p.madre) LIKE '% ' || :progenitor_nombre || ' %' THEN 5000
+            CASE WHEN :es_padre AND :progenitor_nombre_completo != '' AND (lower(p.padre) = :progenitor_nombre_completo OR lower(p.padre) LIKE :progenitor_nombre_completo || ' %') THEN 25000
+                 WHEN NOT :es_padre AND :progenitor_nombre_completo != '' AND (lower(p.madre) = :progenitor_nombre_completo OR lower(p.madre) LIKE :progenitor_nombre_completo || ' %') THEN 25000
+                 WHEN :es_padre AND lower(p.padre) = :progenitor_nombre THEN 12000
+                 WHEN NOT :es_padre AND lower(p.madre) = :progenitor_nombre THEN 12000
+                 WHEN :es_padre AND (lower(p.padre) LIKE :progenitor_nombre || ' %' OR lower(p.padre) LIKE '% ' || :progenitor_nombre) THEN 10000
+                 WHEN NOT :es_padre AND (lower(p.madre) LIKE :progenitor_nombre || ' %' OR lower(p.madre) LIKE '% ' || :progenitor_nombre) THEN 10000
+                 WHEN :es_padre AND lower(p.padre) LIKE '% ' || :progenitor_nombre || ' %' THEN 6000
+                 WHEN NOT :es_padre AND lower(p.madre) LIKE '% ' || :progenitor_nombre || ' %' THEN 6000
                  ELSE 0
             END
             -- 2. Herencia de apellidos compartidos
-            + CASE WHEN :es_padre AND lower(p.ap_pat) = :progenitor_ap_pat THEN 6000
-                   WHEN NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_pat THEN 6000
+            + CASE WHEN :es_padre AND lower(p.ap_pat) = :progenitor_ap_pat THEN 7000
+                   WHEN NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_pat THEN 7000
                    ELSE 0
             END
             + CASE WHEN :progenitor_ap_mat != '' AND (
                        (:es_padre AND lower(p.ap_mat) = :progenitor_ap_mat)
                        OR (NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_mat)
-                   ) THEN 2500 ELSE 0
+                   ) THEN 3000 ELSE 0
             END
             -- 3. Ubigeo de nacimiento compartido (distrito exacto > provincia > departamento)
-            + CASE WHEN :progenitor_ubigeo_nac != '' AND p.ubigeo_nac = :progenitor_ubigeo_nac THEN 5000
-                   WHEN :progenitor_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:progenitor_ubigeo_nac, 1, 4) THEN 3000
-                   WHEN :progenitor_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 2) = SUBSTRING(:progenitor_ubigeo_nac, 1, 2) THEN 1200
+            + CASE WHEN :progenitor_ubigeo_nac != '' AND p.ubigeo_nac = :progenitor_ubigeo_nac THEN 6000
+                   WHEN :progenitor_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:progenitor_ubigeo_nac, 1, 4) THEN 3500
+                   WHEN :progenitor_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 2) = SUBSTRING(:progenitor_ubigeo_nac, 1, 2) THEN 1500
                    ELSE 0
             END
             -- 4. Ubigeo de domicilio compartido (distrito exacto > departamento)
-            + CASE WHEN :progenitor_ubigeo_dir != '' AND p.ubigeo_dir = :progenitor_ubigeo_dir THEN 4000
-                   WHEN :progenitor_ubigeo_dir != '' AND SPLIT_PART(p.ubigeo_dir, '-', 1) = SPLIT_PART(:progenitor_ubigeo_dir, '-', 1) THEN 1500
+            + CASE WHEN :progenitor_ubigeo_dir != '' AND p.ubigeo_dir = :progenitor_ubigeo_dir THEN 5000
+                   WHEN :progenitor_ubigeo_dir != '' AND SPLIT_PART(p.ubigeo_dir, '-', 1) = SPLIT_PART(:progenitor_ubigeo_dir, '-', 1) THEN 2000
                    ELSE 0
             END
             -- 5. Cruce de geolocalización (nacimiento del hijo coincide con domicilio del padre o viceversa)
             + CASE WHEN :progenitor_ubigeo_dir != '' AND p.ubigeo_nac != '' AND :progenitor_ubigeo_nac != ''
-                        AND p.ubigeo_nac = :progenitor_ubigeo_dir THEN 2500
+                        AND p.ubigeo_nac = :progenitor_ubigeo_dir THEN 3000
                    WHEN :progenitor_ubigeo_nac != '' AND p.ubigeo_dir != ''
-                        AND p.ubigeo_dir = :progenitor_ubigeo_nac THEN 2000
+                        AND p.ubigeo_dir = :progenitor_ubigeo_nac THEN 2500
                    ELSE 0
             END
             -- 6. Misma dirección física exacta o coincidencia de localidad/comunidad/calle
-            + CASE WHEN :progenitor_direccion != '' AND lower(p.direccion) = :progenitor_direccion THEN 6000
+            + CASE WHEN :progenitor_direccion != '' AND lower(p.direccion) = :progenitor_direccion THEN 10000
                    WHEN :progenitor_direccion != '' AND (
                        lower(p.direccion) LIKE '%' || :progenitor_direccion || '%'
                        OR :progenitor_direccion LIKE '%' || lower(p.direccion) || '%'
-                   ) THEN 4000
+                   ) THEN 5000
                    ELSE 0
             END
             -- 7. Coherencia biológica y rango óptimo de edad reproductiva

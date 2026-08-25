@@ -1,9 +1,14 @@
 import hashlib
 import os
 
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+_env_path = Path(__file__).resolve().parents[1] / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -51,3 +56,7 @@ else:
     FRONTEND_TOKEN_SECRET = ""
 
 FRONTEND_TOKEN_TTL = int(os.getenv("FRONTEND_TOKEN_TTL", "3600"))
+
+# JWT para autenticación de usuarios
+JWT_SECRET = os.getenv("JWT_SECRET", hashlib.sha256(b"buscador-default-jwt").hexdigest())
+JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))

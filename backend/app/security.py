@@ -6,6 +6,7 @@ import time
 from fastapi import HTTPException, Request
 
 from app.config import API_KEYS, FRONTEND_TOKEN_SECRET, FRONTEND_TOKEN_TTL
+from app.services import auth_service
 
 
 def _constant_time_in(key: str, valid_keys: list[str]) -> bool:
@@ -50,6 +51,60 @@ def _verify_frontend_token(token: str) -> bool:
         return False
 
 
+def _extract_jwt_payload(request: Request) -> dict | None:
+    """Extrae y valida el JWT del header Authorization. Retorna payload o None."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth[7:]
+    return auth_service.verificar_token(token)
+
+
+def require_jwt_auth(request: Request) -> dict:
+    """Exige autenticación JWT. Retorna el payload del token con user_id y rol.
+
+    Acepta:
+    - Header Authorization: Bearer <jwt_token>
+    - Header Authorization: Bearer <frontend_token> (devuelve payload admin)
+    - Header X-API-Key válido (devuelve payload admin)
+    - En entorno de desarrollo (sin API_KEYS ni FRONTEND_TOKEN_SECRET y sin auth headers) devuelve payload admin
+    """
+    # 1) JWT Token estándar
+    payload = _extract_jwt_payload(request)
+    if payload:
+        return payload
+
+    # 2) Token de frontend clásico
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        if FRONTEND_TOKEN_SECRET and _verify_frontend_token(token):
+            return {"sub": 1, "username": "frontend_session", "rol": "admin"}
+
+    # 3) API Key clásica
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key and API_KEYS and _constant_time_in(api_key, API_KEYS):
+        return {"sub": 1, "username": "api_key_client", "rol": "admin"}
+
+    # 4) Acceso abierto en tests / desarrollo si no hay API_KEYS ni FRONTEND_TOKEN_SECRET configurados
+    if not API_KEYS and not FRONTEND_TOKEN_SECRET:
+        return {"sub": 1, "username": "dev_user", "rol": "admin"}
+
+    raise HTTPException(
+        status_code=401,
+        detail="Sesión expirada o no válida. Inicia sesión nuevamente.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def require_admin(request: Request) -> dict:
+    """Exige autenticación JWT con rol admin."""
+    payload = require_jwt_auth(request)
+    if payload.get("rol") != "admin":
+        raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere rol de administrador.")
+    return payload
+
+
 def require_api_key(request: Request) -> None:
     """Exige autenticación en todos los endpoints de datos.
 
@@ -69,11 +124,13 @@ def require_api_key(request: Request) -> None:
     if api_key and API_KEYS and _constant_time_in(api_key, API_KEYS):
         return
 
-    # 2) Token de sesión frontend
+    # 2) Token de sesión frontend o JWT
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer ") and FRONTEND_TOKEN_SECRET:
+    if auth.startswith("Bearer "):
         token = auth[7:]
-        if _verify_frontend_token(token):
+        if FRONTEND_TOKEN_SECRET and _verify_frontend_token(token):
+            return
+        if auth_service.verificar_token(token):
             return
 
     raise HTTPException(

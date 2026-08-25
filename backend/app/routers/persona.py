@@ -9,8 +9,8 @@ from app.cache import TTLCache
 from app.config import BUSCAR_CACHE_TTL, DNI_CACHE_TTL
 from app.dependencies import get_client_host, verify_search_rate_limit
 from app.schemas import ArbolResponse, CertificadoC4Response, PersonaBusquedaItem, PersonaResponse
-from app.security import require_api_key
-from app.services import auditoria_service, persona_service
+from app.security import require_jwt_auth
+from app.services import auditoria_service, auth_service, persona_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +26,41 @@ def _normalize_text(text: str) -> str:
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def _check_consultas(user_payload: dict) -> None:
+    """Verifica que el usuario tenga consultas disponibles. Admins no tienen límite."""
+    if user_payload.get("rol") == "admin":
+        return
+    restantes = auth_service.consultas_restantes(user_payload["sub"])
+    if restantes <= 0:
+        raise HTTPException(
+            status_code=403,
+            detail="Sin consultas disponibles. Contacta al administrador para obtener más.",
+        )
+
+
+def _usar_consulta(user_payload: dict) -> None:
+    """Descuenta una consulta al usuario (excepto admins)."""
+    if user_payload.get("rol") == "admin":
+        return
+    auth_service.descontar_consulta(user_payload["sub"])
+
+
 @router.get("/persona/{dni}", response_model=PersonaResponse)
 async def obtener_persona(
     dni: str,
     request: Request,
     background_tasks: BackgroundTasks,
     _rate_limit: None = Depends(verify_search_rate_limit),
-    _auth: None = Depends(require_api_key),
+    user_payload: dict = Depends(require_jwt_auth),
 ):
     if not (dni.isdigit() and len(dni) == 8):
         raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
 
+    _check_consultas(user_payload)
+
     cached = dni_cache.get(dni)
     if cached is not None:
+        _usar_consulta(user_payload)
         return cached
 
     try:
@@ -52,6 +74,7 @@ async def obtener_persona(
 
     result = dict(fila)
     dni_cache.set(dni, result)
+    _usar_consulta(user_payload)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "persona", dni)
     return result
 
@@ -63,7 +86,7 @@ async def buscar_personas(
     q: str = Query(..., min_length=2, description="Nombre o apellido a buscar"),
     limit: int = Query(20, ge=1, le=200, description="Máximo de resultados"),
     _rate_limit: None = Depends(verify_search_rate_limit),
-    _auth: None = Depends(require_api_key),
+    user_payload: dict = Depends(require_jwt_auth),
 ):
     q = " ".join(q.strip().split())
     if not q:
@@ -75,9 +98,12 @@ async def buscar_personas(
             detail="Búsqueda muy corta: mínimo 3 caracteres",
         )
 
+    _check_consultas(user_payload)
+
     cache_key = f"{q}:{limit}"
     cached = buscar_cache.get(cache_key)
     if cached is not None:
+        _usar_consulta(user_payload)
         return cached
 
     q_normalized = _normalize_text(q)
@@ -110,6 +136,7 @@ async def buscar_personas(
 
     result = [dict(fila) for fila in filas]
     buscar_cache.set(cache_key, result)
+    _usar_consulta(user_payload)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "buscar", q)
     return result
 
@@ -118,10 +145,12 @@ async def buscar_personas(
 async def arbol_genealogico(
     dni: str,
     _rate_limit: None = Depends(verify_search_rate_limit),
-    _auth: None = Depends(require_api_key),
+    user_payload: dict = Depends(require_jwt_auth),
 ):
     if not (dni.isdigit() and len(dni) == 8):
         raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
+
+    _check_consultas(user_payload)
 
     try:
         arbol = await asyncio.to_thread(persona_service.construir_arbol, dni)
@@ -132,6 +161,7 @@ async def arbol_genealogico(
     if not arbol:
         raise HTTPException(status_code=404, detail="Persona no encontrada")
 
+    _usar_consulta(user_payload)
     return arbol
 
 
@@ -141,7 +171,7 @@ async def obtener_certificado_c4(
     request: Request,
     background_tasks: BackgroundTasks,
     _rate_limit: None = Depends(verify_search_rate_limit),
-    _auth: None = Depends(require_api_key),
+    user_payload: dict = Depends(require_jwt_auth),
 ):
     """Genera los datos oficiales y código de autenticidad para el Certificado C4 RENIEC."""
     import hashlib
@@ -149,6 +179,8 @@ async def obtener_certificado_c4(
 
     if not (dni.isdigit() and len(dni) == 8):
         raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
+
+    _check_consultas(user_payload)
 
     cached = dni_cache.get(dni)
     if cached is not None:
@@ -186,12 +218,13 @@ async def obtener_certificado_c4(
     f_cad = str(fila.get("fch_caducidad") or "").replace("-", "")[2:] if fila.get("fch_caducidad") else "991231"
     sexo_char = "F" if str(fila.get("sexo") or "").upper().startswith("F") or fila.get("sexo") == "2" else "M"
     
-    mrz1 = f"I<PER{dni}<<<<<<<<<<<<<<<<<<"[:30]
+    mrz1 = f"I<PER{dni}<<<<<<<<<<<<<<<<<<<<"[:30]
     mrz2 = f"{f_nac}0{sexo_char}{f_cad}0PER<<<<<<<<<<<1"[:30]
 
     host = request.base_url
     url_verif = f"{host}#c4={dni}&v={codigo_verif}"
 
+    _usar_consulta(user_payload)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "c4", dni)
 
     return {
@@ -205,4 +238,3 @@ async def obtener_certificado_c4(
         "firma_digital": firma_digital,
         "url_verificacion": url_verif,
     }
-

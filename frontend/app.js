@@ -7,30 +7,38 @@
       ? 'http://127.0.0.1:8000'
       : window.location.origin;
 
-  let _sessionToken = null;
-
-  async function fetchSessionToken() {
-    try {
-      const res = await fetch(`${API_BASE}/api/frontend-token`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.token) {
-          _sessionToken = data.token;
-          if (data.expires_in > 60) {
-            setTimeout(fetchSessionToken, (data.expires_in - 60) * 1000);
-          }
-        }
-      }
-    } catch {
-      setTimeout(fetchSessionToken, 5000);
-    }
-  }
+  /* ── Auth State ──────────────────────────────────────────── */
+  let _jwtToken = localStorage.getItem('jwt_token') || null;
+  let _userRol = localStorage.getItem('user_rol') || null;
+  let _username = localStorage.getItem('username') || null;
+  let _consultasRestantes = parseInt(localStorage.getItem('consultas_restantes') || '0');
 
   function apiHeaders(extra) {
     const h = extra || {};
-    if (_sessionToken) h['Authorization'] = `Bearer ${_sessionToken}`;
+    if (_jwtToken) h['Authorization'] = `Bearer ${_jwtToken}`;
     return h;
   }
+
+  function saveAuth(token, username, rol, consultas) {
+    _jwtToken = token;
+    _userRol = rol;
+    _username = username;
+    _consultasRestantes = consultas;
+    localStorage.setItem('jwt_token', token);
+    localStorage.setItem('user_rol', rol);
+    localStorage.setItem('username', username);
+    localStorage.setItem('consultas_restantes', String(consultas));
+  }
+
+  function clearAuth() {
+    _jwtToken = null; _userRol = null; _username = null; _consultasRestantes = 0;
+    localStorage.removeItem('jwt_token');
+    localStorage.removeItem('user_rol');
+    localStorage.removeItem('username');
+    localStorage.removeItem('consultas_restantes');
+  }
+
+  function isLoggedIn() { return !!_jwtToken; }
 
 
   /* ── DOM refs ────────────────────────────────────────────── */
@@ -71,7 +79,32 @@
   const c4Modal            = $('c4-modal');
   const c4Container        = $('c4-container');
   const btnCloseC4         = $('btn-close-c4');
-  const btnPrintC4         = $('btn-print-c4');
+  const btnThemeToggle     = $('btn-theme-toggle');
+
+  /* ── Theme Management ────────────────────────────────────── */
+  function getTheme() {
+    return document.documentElement.getAttribute('data-theme') || 'dark';
+  }
+
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute('content', theme === 'light' ? '#f8fafc' : '#070709');
+    }
+  }
+
+  function toggleTheme() {
+    const current = getTheme();
+    const next = current === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    toast(next === 'light' ? 'Modo claro activado' : 'Modo oscuro activado', 'info');
+  }
+
+  if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', toggleTheme);
+  }
 
   let resultados = [];
   let personaSeleccionada = null;
@@ -460,10 +493,6 @@
             <span class="material-symbols-outlined">account_tree</span>
             <span>Árbol</span>
           </button>
-          <button class="btn-action" id="btn-print-sheet" title="Imprimir Certificado C4 Oficial (PDF)">
-            <span class="material-symbols-outlined">print</span>
-            <span>Imprimir</span>
-          </button>
         </div>
 
         <div class="detail-body">
@@ -641,12 +670,6 @@
       });
     }
 
-    const printBtn = container.querySelector('#btn-print-sheet');
-    if (printBtn) {
-      printBtn.addEventListener('click', () => {
-        openC4Modal(p.dni);
-      });
-    }
 
     // Buscador interactivo de padres
     container.querySelectorAll('.btn-search-relative').forEach(el => {
@@ -1059,17 +1082,6 @@
   if (btnCloseC4) btnCloseC4.addEventListener('click', closeC4Modal);
   document.querySelectorAll('[data-close-c4]').forEach(el => el.addEventListener('click', closeC4Modal));
 
-  if (btnPrintC4) {
-    btnPrintC4.addEventListener('click', () => {
-      document.body.classList.add('printing-c4');
-      window.print();
-      setTimeout(() => document.body.classList.remove('printing-c4'), 1000);
-    });
-  }
-  window.addEventListener('afterprint', () => {
-    document.body.classList.remove('printing-c4');
-  });
-
   async function fetchC4Certificate(dni) {
     try {
       const res = await fetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/c4`, { headers: apiHeaders() });
@@ -1421,9 +1433,17 @@
   /* ── Error handling ──────────────────────────────────────── */
   function handleApiError(res, data) {
     if (res.status === 401) {
-      toast('Sesión expirada. Renovando credenciales...', 'error');
-      setTimeout(() => fetchSessionToken(), 1000);
+      toast('Sesión expirada. Inicia sesión nuevamente.', 'error');
+      showLoginScreen();
       return 'Sesión expirada';
+    }
+    if (res.status === 403) {
+      const detail = data && data.detail ? data.detail : 'Sin consultas disponibles';
+      toast(detail, 'warn');
+      setEstado(detail, 'error');
+      _consultasRestantes = 0;
+      updateConsultasBadge();
+      return detail;
     }
     if (res.status === 429) {
       const retry = res.headers.get('Retry-After');
@@ -1500,7 +1520,10 @@
 
       btnExportar.classList.remove('hidden');
       btnExportarJson.classList.remove('hidden');
-      if (data.length > 0) showDetail(data[0], 0);
+      if (data.length > 0) {
+        showDetail(data[0], 0);
+        decrementConsultas();
+      }
     } catch (e) {
       if (e.name === 'AbortError') return;
       if (!e.handled) {
@@ -1540,24 +1563,6 @@
     searchInput.value = '';
     btnClearSearch.classList.remove('visible');
     searchInput.focus();
-  });
-
-  // Suggestion chips
-  document.querySelectorAll('.chip[data-query]').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const q = chip.getAttribute('data-query');
-      setMode('nombre');
-      searchInput.value = q;
-      btnClearSearch.classList.add('visible');
-      search();
-    });
-  });
-
-  document.querySelectorAll('.chip[data-example="dni"]').forEach(chip => {
-    chip.addEventListener('click', () => {
-      setMode('dni');
-      searchInput.focus();
-    });
   });
 
   /* ── CSV & JSON Export ────────────────────────────────────── */
@@ -1747,26 +1752,267 @@
     if (btn) addRipple(e, btn);
   });
 
-  fetchSessionToken().then(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const initialQ = urlParams.get('q');
-    const initialMode = urlParams.get('mode');
+  /* ── Login / Logout / Admin Panel ────────────────────────── */
+  const loginOverlay = $('login-overlay');
+  const loginForm = $('login-form');
+  const loginUser = $('login-user');
+  const loginPass = $('login-pass');
+  const loginError = $('login-error');
+  const btnLoginEl = $('btn-login');
+  const consultasBadge = $('consultas-badge');
+  const consultasCount = $('consultas-count');
+  const btnOpenAdmin = $('btn-open-admin');
+  const btnLogout = $('btn-logout');
+  const adminOverlay = $('admin-overlay');
+  const adminBackdrop = $('admin-backdrop');
+  const btnCloseAdmin = $('btn-close-admin');
+  const adminTableBody = $('admin-table-body');
+  const btnCrearUsuario = $('btn-crear-usuario');
+  const adminMsg = $('admin-msg');
 
-    if (initialMode === 'nombre' || initialMode === 'dni') {
-      setMode(initialMode);
+  function updateConsultasBadge() {
+    if (_userRol === 'admin') {
+      consultasCount.textContent = '∞';
+      consultasBadge.className = 'consultas-badge';
     } else {
-      setMode('dni');
+      consultasCount.textContent = _consultasRestantes;
+      consultasBadge.className = 'consultas-badge' +
+        (_consultasRestantes <= 0 ? ' consultas-badge--empty' :
+         _consultasRestantes <= 10 ? ' consultas-badge--warn' : '');
     }
+  }
 
-    checkConnection();
-    setInterval(checkConnection, 30000);
+  function decrementConsultas() {
+    if (_userRol === 'admin') return;
+    _consultasRestantes = Math.max(0, _consultasRestantes - 1);
+    localStorage.setItem('consultas_restantes', String(_consultasRestantes));
+    updateConsultasBadge();
+  }
 
-    if (initialQ) {
-      searchInput.value = initialQ;
-      btnClearSearch.classList.add('visible');
-      search();
+  async function refreshUserInfo() {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/me`, { headers: apiHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        _consultasRestantes = data.consultas_restantes;
+        _userRol = data.rol;
+        localStorage.setItem('consultas_restantes', String(_consultasRestantes));
+        localStorage.setItem('user_rol', data.rol);
+        updateConsultasBadge();
+      } else if (res.status === 401) {
+        showLoginScreen();
+      }
+    } catch { /* silently ignore */ }
+  }
+
+  function showLoginScreen() {
+    clearAuth();
+    loginOverlay.classList.remove('hidden');
+    loginUser.focus();
+  }
+
+  function hideLoginScreen() {
+    loginOverlay.classList.add('hidden');
+    updateConsultasBadge();
+    if (_userRol === 'admin') {
+      btnOpenAdmin.classList.remove('hidden');
     } else {
-      searchInput.focus();
+      btnOpenAdmin.classList.add('hidden');
+    }
+  }
+
+  // Login form
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginError.classList.remove('show');
+    btnLoginEl.disabled = true;
+    btnLoginEl.textContent = 'Verificando...';
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginUser.value.trim(), password: loginPass.value }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        saveAuth(data.token, data.username, data.rol, data.consultas_restantes);
+        hideLoginScreen();
+        loginForm.reset();
+        checkConnection();
+        searchInput.focus();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        loginError.textContent = err.detail || 'Usuario o contraseña incorrectos';
+        loginError.classList.add('show');
+      }
+    } catch {
+      loginError.textContent = 'Error de conexión con el servidor';
+      loginError.classList.add('show');
+    } finally {
+      btnLoginEl.disabled = false;
+      btnLoginEl.textContent = 'Iniciar Sesión';
     }
   });
+
+  // Logout
+  btnLogout.addEventListener('click', () => {
+    showLoginScreen();
+  });
+
+  // Admin Panel
+  btnOpenAdmin.addEventListener('click', () => {
+    adminOverlay.classList.add('show');
+    loadAdminUsers();
+  });
+  btnCloseAdmin.addEventListener('click', () => adminOverlay.classList.remove('show'));
+  adminBackdrop.addEventListener('click', () => adminOverlay.classList.remove('show'));
+
+  function showAdminMsg(msg, ok) {
+    adminMsg.textContent = msg;
+    adminMsg.className = 'admin-msg ' + (ok ? 'admin-msg--ok' : 'admin-msg--err');
+    setTimeout(() => { adminMsg.className = 'admin-msg'; }, 3000);
+  }
+
+  async function loadAdminUsers() {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/usuarios`, { headers: apiHeaders() });
+      if (!res.ok) return;
+      const users = await res.json();
+      adminTableBody.innerHTML = users.map(u => {
+        const rolBadge = u.rol === 'admin'
+          ? '<span class="badge-rol badge-rol--admin">Admin</span>'
+          : '<span class="badge-rol badge-rol--user">User</span>';
+        const statusBadge = u.activo
+          ? '<span class="badge-status badge-status--active">Activo</span>'
+          : '<span class="badge-status badge-status--inactive">Inactivo</span>';
+        const restantes = Math.max(0, u.consultas_max - u.consultas_usadas);
+        const isAdmin = u.rol === 'admin';
+        return `<tr>
+          <td>${u.id}</td>
+          <td><strong>${u.username}</strong></td>
+          <td>${rolBadge}</td>
+          <td class="consultas-cell">${u.consultas_usadas} / ${u.consultas_max} <small style="color:var(--text-5)">(${restantes} rest.)</small></td>
+          <td>${statusBadge}</td>
+          <td>
+            <div class="admin-actions-cell">
+              ${!isAdmin ? `
+                <button class="btn-admin-action" title="Agregar 100 consultas" onclick="window._adminAddConsultas(${u.id}, ${u.consultas_max})">
+                  <span class="material-symbols-outlined">add_circle</span>
+                </button>
+                <button class="btn-admin-action" title="${u.activo ? 'Desactivar' : 'Activar'}" onclick="window._adminToggle(${u.id}, ${!u.activo})">
+                  <span class="material-symbols-outlined">${u.activo ? 'block' : 'check_circle'}</span>
+                </button>
+                <button class="btn-admin-action btn-admin-action--danger" title="Eliminar" onclick="window._adminDelete(${u.id}, '${u.username}')">
+                  <span class="material-symbols-outlined">delete</span>
+                </button>
+              ` : '<span style="color:var(--text-5);font-size:11px">—</span>'}
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+    } catch {
+      adminTableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red)">Error al cargar usuarios</td></tr>';
+    }
+  }
+
+  // Admin actions (global for onclick)
+  window._adminAddConsultas = async (id, currentMax) => {
+    const res = await fetch(`${API_BASE}/api/admin/usuarios/${id}`, {
+      method: 'PUT',
+      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consultas_max: currentMax + 100 }),
+    });
+    if (res.ok) { showAdminMsg('+100 consultas agregadas', true); loadAdminUsers(); }
+    else showAdminMsg('Error al actualizar', false);
+  };
+
+  window._adminToggle = async (id, newState) => {
+    const res = await fetch(`${API_BASE}/api/admin/usuarios/${id}`, {
+      method: 'PUT',
+      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activo: newState }),
+    });
+    if (res.ok) { showAdminMsg(newState ? 'Usuario activado' : 'Usuario desactivado', true); loadAdminUsers(); }
+    else showAdminMsg('Error al actualizar', false);
+  };
+
+  window._adminDelete = async (id, username) => {
+    if (!confirm(`¿Eliminar al usuario "${username}"?`)) return;
+    const res = await fetch(`${API_BASE}/api/admin/usuarios/${id}`, {
+      method: 'DELETE',
+      headers: apiHeaders(),
+    });
+    if (res.ok) { showAdminMsg(`Usuario "${username}" eliminado`, true); loadAdminUsers(); }
+    else showAdminMsg('Error al eliminar', false);
+  };
+
+  // Create user
+  btnCrearUsuario.addEventListener('click', async () => {
+    const username = $('admin-new-user').value.trim();
+    const password = $('admin-new-pass').value;
+    const consultas = parseInt($('admin-new-consultas').value) || 100;
+
+    if (!username || !password) { showAdminMsg('Completa usuario y contraseña', false); return; }
+
+    const res = await fetch(`${API_BASE}/api/admin/usuarios`, {
+      method: 'POST',
+      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, consultas_max: consultas }),
+    });
+
+    if (res.ok) {
+      showAdminMsg(`Usuario "${username}" creado con ${consultas} consultas`, true);
+      $('admin-new-user').value = '';
+      $('admin-new-pass').value = '';
+      $('admin-new-consultas').value = '100';
+      loadAdminUsers();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showAdminMsg(err.detail || 'Error al crear usuario', false);
+    }
+  });
+
+  // Intercept 401 responses to show login
+  const _origFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const res = await _origFetch.apply(this, args);
+    if (res.status === 401 && isLoggedIn()) {
+      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+      if (!url.includes('/api/auth/login')) {
+        showLoginScreen();
+      }
+    }
+    return res;
+  };
+
+  /* ── Boot ──────────────────────────────────────────────── */
+  if (isLoggedIn()) {
+    hideLoginScreen();
+    refreshUserInfo();
+  } else {
+    showLoginScreen();
+  }
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialQ = urlParams.get('q');
+  const initialMode = urlParams.get('mode');
+
+  if (initialMode === 'nombre' || initialMode === 'dni') {
+    setMode(initialMode);
+  } else {
+    setMode('dni');
+  }
+
+  checkConnection();
+  setInterval(checkConnection, 30000);
+
+  if (initialQ && isLoggedIn()) {
+    searchInput.value = initialQ;
+    btnClearSearch.classList.add('visible');
+    search();
+  } else if (isLoggedIn()) {
+    searchInput.focus();
+  }
 })();

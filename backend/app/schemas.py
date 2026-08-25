@@ -129,3 +129,63 @@ class CertificadoC4Response(BaseModel):
     digito_verificador: str
     firma_digital: str
     url_verificacion: str
+
+
+# ── Auth & Admin Schemas ──────────────────────────────────────
+
+
+class LoginRequest(BaseModel):
+    """Datos de login."""
+
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """Respuesta al login exitoso."""
+
+    token: str
+    username: str
+    rol: str
+    consultas_restantes: int
+
+
+class MeResponse(BaseModel):
+    """Datos del usuario autenticado."""
+
+    id: int
+    username: str
+    rol: str
+    consultas_max: int
+    consultas_usadas: int
+    consultas_restantes: int
+
+
+class UsuarioResponse(BaseModel):
+    """Datos de un usuario (para el panel admin)."""
+
+    id: int
+    username: str
+    rol: str
+    consultas_max: int
+    consultas_usadas: int
+    activo: bool
+    created_at: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class CrearUsuarioRequest(BaseModel):
+    """Datos para crear un nuevo usuario."""
+
+    username: str
+    password: str
+    consultas_max: int = 100
+
+
+class ActualizarUsuarioRequest(BaseModel):
+    """Datos para actualizar un usuario existente."""
+
+    consultas_max: int | None = None
+    activo: bool | None = None
+    password: str | None = None
