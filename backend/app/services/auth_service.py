@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Servicio de autenticación: JWT, bcrypt y control de consultas."""
 
 import logging
