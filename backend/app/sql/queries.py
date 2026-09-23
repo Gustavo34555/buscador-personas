@@ -135,7 +135,7 @@ RANK_PRECISO = f"""
 # ÁRBOL GENEALÓGICO — Queries de alta precisión con lógica biológica estricta
 # ═══════════════════════════════════════════════════════════════════════
 
-# 1. Buscar padre: GIN search_vector + regla biológica estricta de edad + correlación
+# 1. Buscar padre: GIN search_vector + nombre completo multi-palabra + penalización conflicto + LIMIT 5
 BUSCAR_PADRE_RANKED = f"""
     SELECT
         p.dni, p.ap_pat, p.ap_mat, p.nombres, p.padre, p.madre, p.fecha_nac,
@@ -143,15 +143,33 @@ BUSCAR_PADRE_RANKED = f"""
         {SEXO_EXPR} AS sexo, p.est_civil,
         {EDAD_COLS},
         (
-            -- Coincidencia exacta de nombre de pila del padre
-            CASE WHEN lower(p.nombres) = :padre_nombre THEN 10000
-                 WHEN lower(p.nombres) LIKE :padre_nombre || ' %' THEN 8500
-                 WHEN lower(p.nombres) LIKE '% ' || :padre_nombre THEN 7000
-                 WHEN lower(p.nombres) LIKE '% ' || :padre_nombre || ' %' THEN 6000
+            -- Coincidencia de nombre completo multi-palabra (máxima prioridad)
+            CASE WHEN :padre_nombre_completo != '' AND immutable_unaccent(lower(p.nombres)) = :padre_nombre_completo THEN 18000
+                 WHEN :padre_nombre_completo != '' AND immutable_unaccent(lower(p.nombres)) LIKE :padre_nombre_completo || ' %' THEN 16000
+                 WHEN :padre_segundo != '' AND immutable_unaccent(lower(p.nombres)) LIKE :padre_nombre || ' ' || :padre_segundo || '%' THEN 15000
+                 WHEN :padre_segundo != '' AND immutable_unaccent(lower(p.nombres)) LIKE :padre_segundo || ' ' || :padre_nombre || '%' THEN 14000
+                 -- Solo primer nombre (1 palabra en campo padre)
+                 WHEN :padre_segundo = '' AND immutable_unaccent(lower(p.nombres)) = :padre_nombre THEN 12000
+                 WHEN :padre_segundo = '' AND immutable_unaccent(lower(p.nombres)) LIKE :padre_nombre || ' %' THEN 10000
+                 WHEN :padre_segundo = '' AND immutable_unaccent(lower(p.nombres)) LIKE '% ' || :padre_nombre THEN 8000
+                 -- Fallback: primer nombre aparece en algún lugar
+                 WHEN immutable_unaccent(lower(p.nombres)) LIKE :padre_nombre || ' %' THEN 7000
+                 WHEN immutable_unaccent(lower(p.nombres)) LIKE '% ' || :padre_nombre THEN 6000
+                 WHEN immutable_unaccent(lower(p.nombres)) LIKE '% ' || :padre_nombre || ' %' THEN 5000
                  ELSE 0
+            END
+            -- PENALIZACIÓN: segundo nombre registrado NO coincide con candidato
+            + CASE WHEN :padre_segundo != ''
+                        AND immutable_unaccent(lower(p.nombres)) LIKE :padre_nombre || ' %'
+                        AND immutable_unaccent(lower(p.nombres)) NOT LIKE :padre_nombre || ' ' || :padre_segundo || '%'
+                        AND immutable_unaccent(lower(p.nombres)) NOT LIKE '% ' || :padre_segundo || '%'
+                   THEN -8000
+                   ELSE 0
             END
             -- Apellido paterno coincide con el del hijo (herencia directa)
             + CASE WHEN lower(p.ap_pat) = :hijo_ap_pat THEN 5000 ELSE 0 END
+            -- Apellido materno del padre (extraído del campo padre) coincide
+            + CASE WHEN :padre_ap_mat != '' AND lower(p.ap_mat) = :padre_ap_mat THEN 4000 ELSE 0 END
             -- Ubigeo nacimiento: distrito exacto > provincia > departamento
             + CASE WHEN :hijo_ubigeo_nac != '' AND p.ubigeo_nac = :hijo_ubigeo_nac THEN 4000
                    WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 2500
@@ -190,10 +208,10 @@ BUSCAR_PADRE_RANKED = f"""
           )
       )
     ORDER BY score DESC
-    LIMIT 1
+    LIMIT 5
 """
 
-# 2. Buscar madre: GIN search_vector + regla biológica estricta de edad + correlación
+# 2. Buscar madre: GIN search_vector + nombre completo multi-palabra + penalización conflicto + LIMIT 5
 BUSCAR_MADRE_RANKED = f"""
     SELECT
         p.dni, p.ap_pat, p.ap_mat, p.nombres, p.padre, p.madre, p.fecha_nac,
@@ -201,15 +219,33 @@ BUSCAR_MADRE_RANKED = f"""
         {SEXO_EXPR} AS sexo, p.est_civil,
         {EDAD_COLS},
         (
-            -- Coincidencia exacta de nombre de pila de la madre
-            CASE WHEN lower(p.nombres) = :madre_nombre THEN 10000
-                 WHEN lower(p.nombres) LIKE :madre_nombre || ' %' THEN 8500
-                 WHEN lower(p.nombres) LIKE '% ' || :madre_nombre THEN 7000
-                 WHEN lower(p.nombres) LIKE '% ' || :madre_nombre || ' %' THEN 6000
+            -- Coincidencia de nombre completo multi-palabra (máxima prioridad)
+            CASE WHEN :madre_nombre_completo != '' AND immutable_unaccent(lower(p.nombres)) = :madre_nombre_completo THEN 18000
+                 WHEN :madre_nombre_completo != '' AND immutable_unaccent(lower(p.nombres)) LIKE :madre_nombre_completo || ' %' THEN 16000
+                 WHEN :madre_segundo != '' AND immutable_unaccent(lower(p.nombres)) LIKE :madre_nombre || ' ' || :madre_segundo || '%' THEN 15000
+                 WHEN :madre_segundo != '' AND immutable_unaccent(lower(p.nombres)) LIKE :madre_segundo || ' ' || :madre_nombre || '%' THEN 14000
+                 -- Solo primer nombre (1 palabra en campo madre)
+                 WHEN :madre_segundo = '' AND immutable_unaccent(lower(p.nombres)) = :madre_nombre THEN 12000
+                 WHEN :madre_segundo = '' AND immutable_unaccent(lower(p.nombres)) LIKE :madre_nombre || ' %' THEN 10000
+                 WHEN :madre_segundo = '' AND immutable_unaccent(lower(p.nombres)) LIKE '% ' || :madre_nombre THEN 8000
+                 -- Fallback: primer nombre aparece en algún lugar
+                 WHEN immutable_unaccent(lower(p.nombres)) LIKE :madre_nombre || ' %' THEN 7000
+                 WHEN immutable_unaccent(lower(p.nombres)) LIKE '% ' || :madre_nombre THEN 6000
+                 WHEN immutable_unaccent(lower(p.nombres)) LIKE '% ' || :madre_nombre || ' %' THEN 5000
                  ELSE 0
+            END
+            -- PENALIZACIÓN: segundo nombre registrado NO coincide con candidato
+            + CASE WHEN :madre_segundo != ''
+                        AND immutable_unaccent(lower(p.nombres)) LIKE :madre_nombre || ' %'
+                        AND immutable_unaccent(lower(p.nombres)) NOT LIKE :madre_nombre || ' ' || :madre_segundo || '%'
+                        AND immutable_unaccent(lower(p.nombres)) NOT LIKE '% ' || :madre_segundo || '%'
+                   THEN -8000
+                   ELSE 0
             END
             -- Apellido paterno de la madre = apellido materno del hijo
             + CASE WHEN lower(p.ap_pat) = :hijo_ap_mat THEN 5000 ELSE 0 END
+            -- Apellido materno de la madre (extraído del campo madre) coincide
+            + CASE WHEN :madre_ap_mat != '' AND lower(p.ap_mat) = :madre_ap_mat THEN 4000 ELSE 0 END
             -- Ubigeo nacimiento: distrito exacto > provincia > departamento
             + CASE WHEN :hijo_ubigeo_nac != '' AND p.ubigeo_nac = :hijo_ubigeo_nac THEN 4000
                    WHEN :hijo_ubigeo_nac != '' AND SUBSTRING(p.ubigeo_nac, 1, 4) = SUBSTRING(:hijo_ubigeo_nac, 1, 4) THEN 2500
@@ -248,7 +284,7 @@ BUSCAR_MADRE_RANKED = f"""
           )
       )
     ORDER BY score DESC
-    LIMIT 1
+    LIMIT 5
 """
 
 # 3. Buscar hermanos: cruce integral de datos compartidos (padre, madre, ubigeo, dirección) + coherencia de edad
@@ -332,7 +368,6 @@ BUSCAR_HIJOS_RANKED = f"""
         p.dni, p.ap_pat, p.ap_mat, p.nombres, p.padre, p.madre, p.fecha_nac,
         p.ubigeo_nac, p.ubigeo_dir, p.direccion,
         {SEXO_EXPR} AS sexo, p.est_civil,
-        {EDAD_COLS},
         (
             -- 1. Coincidencia de nombre del progenitor en campo padre o madre
             CASE WHEN :es_padre AND :progenitor_nombre_completo != '' AND (lower(p.padre) = :progenitor_nombre_completo OR lower(p.padre) LIKE :progenitor_nombre_completo || ' %') THEN 25000
@@ -341,8 +376,6 @@ BUSCAR_HIJOS_RANKED = f"""
                  WHEN NOT :es_padre AND lower(p.madre) = :progenitor_nombre THEN 12000
                  WHEN :es_padre AND (lower(p.padre) LIKE :progenitor_nombre || ' %' OR lower(p.padre) LIKE '% ' || :progenitor_nombre) THEN 10000
                  WHEN NOT :es_padre AND (lower(p.madre) LIKE :progenitor_nombre || ' %' OR lower(p.madre) LIKE '% ' || :progenitor_nombre) THEN 10000
-                 WHEN :es_padre AND lower(p.padre) LIKE '% ' || :progenitor_nombre || ' %' THEN 6000
-                 WHEN NOT :es_padre AND lower(p.madre) LIKE '% ' || :progenitor_nombre || ' %' THEN 6000
                  ELSE 0
             END
             -- 2. Herencia de apellidos compartidos
@@ -382,12 +415,8 @@ BUSCAR_HIJOS_RANKED = f"""
                    ELSE 0
             END
             -- 7. Coherencia biológica y rango óptimo de edad reproductiva
-            + CASE WHEN p.fecha_nac IS NOT NULL AND CAST(:progenitor_fecha_nac AS date) IS NOT NULL
-                        AND EXTRACT(YEAR FROM age(p.fecha_nac, CAST(:progenitor_fecha_nac AS date))) BETWEEN 18 AND 42
-                   THEN 4000
-                   WHEN p.fecha_nac IS NOT NULL AND CAST(:progenitor_fecha_nac AS date) IS NOT NULL
-                        AND EXTRACT(YEAR FROM age(p.fecha_nac, CAST(:progenitor_fecha_nac AS date))) BETWEEN 14 AND 55
-                   THEN 2000
+            + CASE WHEN p.fecha_nac IS NOT NULL AND p.fecha_nac BETWEEN CAST(:optimo_min_fecha AS date) AND CAST(:optimo_max_fecha AS date) THEN 4000
+                   WHEN p.fecha_nac IS NOT NULL AND p.fecha_nac BETWEEN CAST(:min_fecha_hijo AS date) AND CAST(:max_fecha_hijo AS date) THEN 2000
                    ELSE 0
             END
         ) AS score
@@ -397,18 +426,16 @@ BUSCAR_HIJOS_RANKED = f"""
       -- REQUISITO 1: El campo padre/madre DEBE contener el nombre del progenitor
       AND (
           (:es_padre AND p.padre IS NOT NULL AND p.padre != '' AND (
-              lower(p.padre) = :progenitor_nombre
-              OR lower(p.padre) = :progenitor_nombre_completo
+              lower(p.padre) = :progenitor_nombre_completo
+              OR lower(p.padre) LIKE :progenitor_nombre_completo || ' %'
+              OR lower(p.padre) = :progenitor_nombre
               OR lower(p.padre) LIKE :progenitor_nombre || ' %'
-              OR lower(p.padre) LIKE '% ' || :progenitor_nombre
-              OR lower(p.padre) LIKE '% ' || :progenitor_nombre || ' %'
           ))
           OR (NOT :es_padre AND p.madre IS NOT NULL AND p.madre != '' AND (
-              lower(p.madre) = :progenitor_nombre
-              OR lower(p.madre) = :progenitor_nombre_completo
+              lower(p.madre) = :progenitor_nombre_completo
+              OR lower(p.madre) LIKE :progenitor_nombre_completo || ' %'
+              OR lower(p.madre) = :progenitor_nombre
               OR lower(p.madre) LIKE :progenitor_nombre || ' %'
-              OR lower(p.madre) LIKE '% ' || :progenitor_nombre
-              OR lower(p.madre) LIKE '% ' || :progenitor_nombre || ' %'
           ))
       )
       -- REQUISITO 2: Herencia obligatoria del apellido
@@ -416,13 +443,11 @@ BUSCAR_HIJOS_RANKED = f"""
           (:es_padre AND lower(p.ap_pat) = :progenitor_ap_pat)
           OR (NOT :es_padre AND lower(p.ap_mat) = :progenitor_ap_pat)
       )
-      -- REGLA BIOLÓGICA ESTRICTA: El hijo NUNCA puede ser mayor o de igual edad que su progenitor
+      -- REGLA BIOLÓGICA ESTRICTA: Rango de fechas directo (sin funciones pesadas por fila)
       AND p.fecha_nac IS NOT NULL
-      AND CAST(:progenitor_fecha_nac AS date) IS NOT NULL
-      AND p.fecha_nac > CAST(:progenitor_fecha_nac AS date)
-      AND EXTRACT(YEAR FROM age(p.fecha_nac, CAST(:progenitor_fecha_nac AS date))) BETWEEN 13 AND 70
+      AND p.fecha_nac BETWEEN CAST(:min_fecha_hijo AS date) AND CAST(:max_fecha_hijo AS date)
     ORDER BY score DESC
-    LIMIT 20
+    LIMIT 50
 """
 
 RUC_POR_DNI = """
