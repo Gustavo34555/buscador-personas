@@ -11,7 +11,7 @@
   <meta property="og:type" content="website">
   <title>Buscador de Personas</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=2.3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -31,26 +31,67 @@
 
   <!-- Login Overlay -->
   <div id="login-overlay" class="login-overlay">
+    <div class="login-ambient-blob login-ambient-blob--1"></div>
+    <div class="login-ambient-blob login-ambient-blob--2"></div>
     <div class="login-card">
       <div class="login-card__header">
-        <div class="login-card__logo">
-          <span class="material-symbols-outlined">lock</span>
+        <div class="login-card__badge">
+          <span class="login-badge-dot"></span>
+          <span>Padrón Nacional RENIEC</span>
         </div>
-        <h2 class="login-card__title">Iniciar Sesión</h2>
-        <p class="login-card__sub">Buscador de Personas — Acceso Restringido</p>
+        <div class="login-card__logo-wrap">
+          <div class="login-card__logo">
+            <svg width="34" height="34" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <defs>
+                <linearGradient id="login-lg1" x1="0" y1="0" x2="64" y2="64">
+                  <stop offset="0%" stop-color="#818cf8"/>
+                  <stop offset="100%" stop-color="#6366f1"/>
+                </linearGradient>
+                <linearGradient id="login-lg2" x1="0" y1="0" x2="64" y2="64">
+                  <stop offset="0%" stop-color="#c084fc"/>
+                  <stop offset="100%" stop-color="#9333ea"/>
+                </linearGradient>
+              </defs>
+              <rect width="64" height="64" rx="18" fill="url(#login-lg1)" opacity="0.2"/>
+              <rect x="1" y="1" width="62" height="62" rx="17" stroke="url(#login-lg1)" stroke-width="1.5" fill="none" opacity="0.5"/>
+              <circle cx="28" cy="22" r="9" stroke="url(#login-lg2)" stroke-width="2.5" fill="none"/>
+              <path d="M13 50c0-8.284 6.716-15 15-15s15 6.716 15 15" stroke="url(#login-lg2)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+              <circle cx="44" cy="42" r="8" stroke="#818cf8" stroke-width="2.5" fill="#070709"/>
+              <line x1="50" y1="48" x2="57" y2="55" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+        <h2 class="login-card__title">Buscador de Personas</h2>
+        <p class="login-card__sub">Ingresa tus credenciales para acceder al sistema</p>
       </div>
       <form id="login-form" autocomplete="off">
         <div class="login-field">
           <label for="login-user">Usuario</label>
-          <input id="login-user" type="text" placeholder="Ingresa tu usuario" required autofocus>
+          <div class="login-input-wrap">
+            <span class="material-symbols-outlined login-input-icon">person</span>
+            <input id="login-user" type="text" placeholder="Ingresa tu usuario" required autofocus>
+          </div>
         </div>
         <div class="login-field">
           <label for="login-pass">Contraseña</label>
-          <input id="login-pass" type="password" placeholder="Ingresa tu contraseña" required>
+          <div class="login-input-wrap">
+            <span class="material-symbols-outlined login-input-icon">lock</span>
+            <input id="login-pass" type="password" placeholder="Ingresa tu contraseña" required>
+            <button type="button" id="btn-toggle-password" class="btn-toggle-pass" title="Mostrar u ocultar contraseña" tabindex="-1">
+              <span class="material-symbols-outlined" id="eye-icon">visibility</span>
+            </button>
+          </div>
         </div>
-        <button type="submit" class="btn-login" id="btn-login">Iniciar Sesión</button>
+        <button type="submit" class="btn-login" id="btn-login">
+          <span>Iniciar Sesión</span>
+          <span class="material-symbols-outlined btn-login__icon">arrow_forward</span>
+        </button>
         <div id="login-error" class="login-error"></div>
       </form>
+      <div class="login-card__footer">
+        <span class="material-symbols-outlined">verified_user</span>
+        <span>Acceso restringido y cifrado</span>
+      </div>
     </div>
   </div>
 
@@ -160,6 +201,9 @@
             <button id="btn-tree-reset" class="btn-tree-ctrl" title="Centrar Árbol">
               <span class="material-symbols-outlined">center_focus_strong</span>
             </button>
+            <button id="btn-tree-download" class="btn-tree-ctrl" title="Descargar Árbol en Imagen">
+              <span class="material-symbols-outlined">download</span>
+            </button>
           </div>
           <button id="btn-close-tree" class="tree-panel__close" title="Cerrar">
             <span class="material-symbols-outlined">close</span>
@@ -191,6 +235,10 @@
           <span>Ficha de Identificación — RENIEC Consultas en Línea</span>
         </div>
         <div class="c4-panel__actions">
+          <button id="btn-print-c4" class="btn-print-c4" title="Imprimir Ficha o Guardar en PDF">
+            <span class="material-symbols-outlined">print</span>
+            <span class="btn-print-c4__label">Imprimir / PDF</span>
+          </button>
           <button id="btn-close-c4" class="c4-panel__close" title="Cerrar">
             <span class="material-symbols-outlined">close</span>
           </button>
@@ -287,17 +335,32 @@
           <span class="material-symbols-outlined search-box__icon">search</span>
           <div class="search-box__input-wrap">
             <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." inputmode="numeric" pattern="[0-9]*" enterkeyhint="search" autocomplete="off" class="search-box__input" aria-label="Buscar persona">
+            <span id="dni-counter" class="dni-counter hidden" title="Dígitos de DNI">0/8</span>
             <button id="btn-clear-search" class="btn-clear-input" title="Borrar búsqueda" aria-label="Borrar texto">
               <span class="material-symbols-outlined">close</span>
             </button>
           </div>
           <div class="search-box__actions" id="search-modes">
             <div class="mode-selector">
+              <div class="mode-glider" id="mode-glider"></div>
               <button id="mode-dni" class="mode-btn mode-btn--active" data-mode="dni">DNI</button>
               <button id="mode-nombre" class="mode-btn" data-mode="nombre">Nombre</button>
             </div>
             <button id="btn-search" class="btn-search" title="Buscar" aria-label="Buscar">
               <span class="material-symbols-outlined">arrow_forward</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Recent Search History Chips -->
+        <div id="search-history" class="search-history hidden">
+          <div class="search-history__inner">
+            <span class="search-history__label">
+              <span class="material-symbols-outlined">history</span> Recientes:
+            </span>
+            <div id="search-history-chips" class="search-history__chips"></div>
+            <button id="btn-clear-history" class="btn-clear-history" title="Borrar historial reciente">
+              <span class="material-symbols-outlined">delete_sweep</span>
             </button>
           </div>
         </div>
@@ -384,6 +447,6 @@
     </div>
   </footer>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2.3"></script>
 </body>
 </html>

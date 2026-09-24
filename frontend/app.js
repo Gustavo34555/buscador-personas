@@ -76,10 +76,17 @@
   const btnTreeZoomIn      = $('btn-tree-zoom-in');
   const btnTreeZoomOut     = $('btn-tree-zoom-out');
   const btnTreeReset       = $('btn-tree-reset');
+  const btnTreeDownload    = $('btn-tree-download');
   const c4Modal            = $('c4-modal');
   const c4Container        = $('c4-container');
   const btnCloseC4         = $('btn-close-c4');
+  const btnPrintC4         = $('btn-print-c4');
   const btnThemeToggle     = $('btn-theme-toggle');
+  const dniCounter         = $('dni-counter');
+  const modeGlider         = $('mode-glider');
+  const searchHistoryEl    = $('search-history');
+  const searchHistoryChipsEl = $('search-history-chips');
+  const btnClearHistoryEl  = $('btn-clear-history');
 
   /* ── Theme Management ────────────────────────────────────── */
   function getTheme() {
@@ -235,6 +242,64 @@
     connectionStatus.className = ok ? 'connection-status' : 'connection-status connection-status--offline';
   }
 
+  /* ── Recent Searches Management ───────────────────────────── */
+  function addRecentSearch(query, mode) {
+    if (!query) return;
+    try {
+      let recents = JSON.parse(localStorage.getItem('recent_searches') || '[]');
+      recents = recents.filter(item => item.query !== query);
+      recents.unshift({ query, mode, time: Date.now() });
+      if (recents.length > 5) recents = recents.slice(0, 5);
+      localStorage.setItem('recent_searches', JSON.stringify(recents));
+      renderRecentSearches();
+    } catch {}
+  }
+
+  function renderRecentSearches() {
+    if (!searchHistoryEl || !searchHistoryChipsEl) return;
+    try {
+      const recents = JSON.parse(localStorage.getItem('recent_searches') || '[]');
+      if (recents.length === 0) {
+        searchHistoryEl.classList.add('hidden');
+        return;
+      }
+      searchHistoryChipsEl.innerHTML = recents.map(r => `
+        <button class="history-chip" data-query="${escHtml(r.query)}" data-mode="${escHtml(r.mode)}" title="Buscar ${escHtml(r.query)}">
+          <span>${r.mode === 'dni' ? '🆔' : '👤'}</span>
+          <span>${escHtml(r.query)}</span>
+        </button>
+      `).join('');
+      searchHistoryEl.classList.remove('hidden');
+
+      searchHistoryChipsEl.querySelectorAll('.history-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const q = btn.getAttribute('data-query');
+          const m = btn.getAttribute('data-mode') || 'dni';
+          setMode(m);
+          searchInput.value = q;
+          btnClearSearch.classList.add('visible');
+          if (m === 'dni' && dniCounter) {
+            dniCounter.textContent = `${q.length}/8`;
+            dniCounter.classList.toggle('hidden', q.length === 0);
+            dniCounter.classList.toggle('dni-counter--valid', q.length === 8);
+          }
+          search();
+        });
+      });
+    } catch {}
+  }
+
+  if (btnClearHistoryEl) {
+    btnClearHistoryEl.addEventListener('click', () => {
+      localStorage.removeItem('recent_searches');
+      renderRecentSearches();
+      toast('Historial reciente borrado', 'normal');
+    });
+  }
+
+  // Render on startup
+  renderRecentSearches();
+
   /* ── Mode switching ──────────────────────────────────────── */
   function setMode(mode) {
     searchMode = mode;
@@ -242,12 +307,22 @@
     if (mode === 'dni') {
       searchInput.setAttribute('inputmode', 'numeric');
       searchInput.setAttribute('pattern', '[0-9]*');
+      if (dniCounter) {
+        const len = searchInput.value.length;
+        dniCounter.textContent = `${len}/8`;
+        dniCounter.classList.toggle('hidden', len === 0);
+        dniCounter.classList.toggle('dni-counter--valid', len === 8);
+      }
     } else {
       searchInput.setAttribute('inputmode', 'text');
       searchInput.removeAttribute('pattern');
+      if (dniCounter) dniCounter.classList.add('hidden');
     }
     modeDni.classList.toggle('mode-btn--active', mode === 'dni');
     modeNombre.classList.toggle('mode-btn--active', mode === 'nombre');
+    if (modeGlider) {
+      modeGlider.classList.toggle('mode-glider--nombre', mode === 'nombre');
+    }
     limitRow.classList.toggle('visible', mode === 'nombre');
     searchInput.focus();
   }
@@ -310,6 +385,22 @@
       const dot = g === 'M' ? 'status-dot--male' : g === 'F' ? 'status-dot--female' : 'status-dot--neutral';
       const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-item--active' : '';
 
+      // Monogram initials & semantic styling
+      const primerNombre = (p.nombres || '').trim().split(/\s+/)[0] || '';
+      const primerApe = (p.ap_pat || '').trim() || '';
+      const iniciales = ((primerNombre[0] || '') + (primerApe[0] || '')).toUpperCase() || (g === 'F' ? 'F' : 'M');
+      const avatarGenderClass = g === 'F' ? 'result-item__avatar--female' : 'result-item__avatar--male';
+
+      let vigenciaBadge = '';
+      if (p.fch_caducidad) {
+        const isVencido = new Date(p.fch_caducidad) < new Date();
+        vigenciaBadge = isVencido
+          ? '<span class="badge-mini badge-mini--expired">Caducado</span>'
+          : '<span class="badge-mini badge-mini--valid">Vigente</span>';
+      }
+      const edadBadge = p.edad_anios != null ? `<span class="badge-mini badge-mini--age">${p.edad_anios} años</span>` : '';
+      const civilBadge = p.est_civil ? `<span class="badge-mini">${escHtml(p.est_civil)}</span>` : '';
+
       // Inline detail summary for mobile
       const fechaNac = p.fecha_nac ? `${escHtml(p.fecha_nac)} (${p.edad_anios || '-'} años)` : '-';
       const padres = [p.padre ? `P: ${p.padre}` : '', p.madre ? `M: ${p.madre}` : ''].filter(Boolean).join(' · ') || 'No registrados';
@@ -317,17 +408,16 @@
 
       html += `<div class="result-item slide-up stagger-${Math.min(i + 1, 8)}${active}" data-index="${i}">
         <div class="result-item__inner">
-          <div class="result-item__avatar">
-            <span class="material-symbols-outlined">${g === 'F' ? 'woman' : 'person'}</span>
+          <div class="result-item__avatar ${avatarGenderClass}" title="${g === 'F' ? 'Femenino' : 'Masculino'}">
+            <span class="result-avatar-text">${escHtml(iniciales)}</span>
           </div>
           <div class="result-item__body">
             <p class="result-item__name">${nHtml}</p>
             <div class="result-item__meta">
               <span class="result-item__dni">DNI ${escHtml(p.dni || '-')}</span>
-              <span class="status-dot ${dot}"></span>
-              <span>${escHtml(p.sexo || '-')}</span>
-              ${p.edad_anios != null ? `<span>&middot; ${p.edad_anios} años</span>` : ''}
-              ${p.est_civil ? `<span>&middot; ${escHtml(p.est_civil)}</span>` : ''}
+              ${vigenciaBadge}
+              ${edadBadge}
+              ${civilBadge}
             </div>
           </div>
           <span class="material-symbols-outlined result-item__chevron">chevron_right</span>
@@ -462,12 +552,17 @@
 
     return `
       <div class="fade-in">
-        <!-- Digital DNI Card Visual -->
-        <div class="dni-card-visual">
+        <!-- Digital DNI Card Visual (ID-1 Format & Holo Shimmer) -->
+        <div class="dni-card-visual" id="dni-card-visual">
+          <div class="dni-card__shimmer"></div>
+          <div class="dni-card__peru-strip">
+            <span class="dni-card__rep-peru">REPÚBLICA DEL PERÚ</span>
+            <span class="dni-card__dni-elect">DOCUMENTO NACIONAL DE IDENTIDAD</span>
+          </div>
           <div class="dni-card__chip"></div>
           <div class="dni-card__header">
             <div class="dni-card__avatar">
-              <span class="material-symbols-outlined" style="font-size:34px; color: ${g === 'F' ? 'var(--pink)' : 'var(--blue)'}">${g === 'F' ? 'woman' : 'person'}</span>
+              <span class="material-symbols-outlined" style="font-size:32px; color: ${g === 'F' ? 'var(--pink)' : 'var(--blue)'}">${g === 'F' ? 'woman' : 'person'}</span>
             </div>
             <div style="flex:1; min-width:0;">
               <h3 class="dni-card__name">${escHtml(n || '-')}</h3>
@@ -485,13 +580,17 @@
             <span class="material-symbols-outlined">assignment</span>
             <span>Copiar Ficha</span>
           </button>
-          <button class="btn-action" id="btn-copy-dni" title="Copiar DNI">
-            <span class="material-symbols-outlined">content_copy</span>
-            <span>Copiar DNI</span>
+          <button class="btn-action btn-action--whatsapp" id="btn-copy-report" title="Copiar reporte formateado para WhatsApp">
+            <span class="material-symbols-outlined" style="color:#22c55e">chat</span>
+            <span>WhatsApp</span>
           </button>
           <button class="btn-action" id="btn-tree" title="Ver árbol genealógico">
             <span class="material-symbols-outlined">account_tree</span>
             <span>Árbol</span>
+          </button>
+          <button class="btn-action" id="btn-c4-direct" title="Ver Certificado C4 Oficial">
+            <span class="material-symbols-outlined" style="color:#38bdf8">verified</span>
+            <span>C4</span>
           </button>
         </div>
 
@@ -577,6 +676,11 @@
                   <span class="material-symbols-outlined">home</span>
                   <span style="white-space:normal; line-height:1.3;">Dirección: ${escHtml(p.direccion)}</span>
                 </div>` : ''}
+              ${(p.direccion || p.ubigeo_dir) ? `
+                <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([p.direccion, p.ubigeo_dir, 'Peru'].filter(Boolean).join(', '))}" target="_blank" rel="noopener noreferrer" class="btn-map-link" title="Ver dirección en Google Maps">
+                  <span class="material-symbols-outlined">map</span>
+                  <span>Abrir en Google Maps</span>
+                </a>` : ''}
               <div class="detail-grid">
                 <div class="field-pill" title="Ubigeo de Domicilio">
                   <span class="material-symbols-outlined">home_pin</span>
@@ -670,6 +774,35 @@
       });
     }
 
+    const copyReportBtn = container.querySelector('#btn-copy-report');
+    if (copyReportBtn) {
+      copyReportBtn.addEventListener('click', () => {
+        const fullReport = [
+          `👤 *DATOS PERSONALES - RENIEC*`,
+          `▫️ *DNI:* ${p.dni || '-'}${p.dig_ruc ? ' (RUC: ' + rucDisplay(p) + ')' : ''}`,
+          `▫️ *Nombre:* ${nombre(p)}`,
+          `▫️ *Sexo:* ${p.sexo === '1' || p.sexo === 'M' ? 'Masculino' : p.sexo === '2' || p.sexo === 'F' ? 'Femenino' : (p.sexo || '-')}`,
+          `▫️ *Estado Civil:* ${p.est_civil || '-'}`,
+          `▫️ *Nacimiento:* ${p.fecha_nac || '-'} (${p.edad_anios ? p.edad_anios + ' años' : '-'})`,
+          ``,
+          `👪 *FILIACIÓN:*`,
+          `▫️ *Padre:* ${p.padre || 'No registrado'}`,
+          `▫️ *Madre:* ${p.madre || 'No registrado'}`,
+          ``,
+          `📍 *DOMICILIO & UBIGEO:*`,
+          `▫️ *Dirección:* ${p.direccion || 'No registrada'}`,
+          `▫️ *Ubigeo Domicilio:* ${p.ubigeo_dir || '-'}`,
+          `▫️ *Ubigeo Nacimiento:* ${p.ubigeo_nac || '-'}`,
+          ``,
+          `📅 *DOCUMENTO:*`,
+          `▫️ *Emisión:* ${p.fch_emision || '-'} | *Caducidad:* ${p.fch_caducidad || '-'}`
+        ].join('\n');
+
+        navigator.clipboard.writeText(fullReport).then(() => {
+          toast('Reporte formateado copiado al portapapeles', 'success');
+        }).catch(() => toast('Error al copiar reporte', 'error'));
+      });
+    }
 
     // Buscador interactivo de padres
     container.querySelectorAll('.btn-search-relative').forEach(el => {
@@ -694,6 +827,11 @@
     const treeBtn = container.querySelector('#btn-tree');
     if (treeBtn) {
       treeBtn.addEventListener('click', () => openTreeModal(p.dni));
+    }
+
+    const c4DirectBtn = container.querySelector('#btn-c4-direct');
+    if (c4DirectBtn) {
+      c4DirectBtn.addEventListener('click', () => openC4Modal(p.dni));
     }
   }
 
@@ -724,6 +862,59 @@
   if (btnTreeZoomIn) btnTreeZoomIn.addEventListener('click', () => setTreeZoom(0.15));
   if (btnTreeZoomOut) btnTreeZoomOut.addEventListener('click', () => setTreeZoom(-0.15));
   if (btnTreeReset) btnTreeReset.addEventListener('click', resetTreeTransform);
+
+  // Download Tree as Image (PNG)
+  if (btnTreeDownload) {
+    btnTreeDownload.addEventListener('click', () => {
+      const titularDni = treeTitularBadge ? treeTitularBadge.textContent.replace(/\D/g, '') : 'arbol';
+      toast('Generando imagen del árbol...', 'normal');
+
+      const container = treeContainer;
+      if (!container) return;
+
+      const w = Math.max(container.scrollWidth || 1000, 900);
+      const h = Math.max(container.scrollHeight || 700, 600);
+
+      const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${w + 60}" height="${h + 60}">
+        <foreignObject width="100%" height="100%">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="background:#070709; color:#f8fafc; padding:30px; font-family:system-ui, sans-serif;">
+            ${container.innerHTML}
+          </div>
+        </foreignObject>
+      </svg>`;
+
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = (w + 60) * 1.5;
+        canvas.height = (h + 60) * 1.5;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(1.5, 1.5);
+        ctx.fillStyle = '#070709';
+        ctx.fillRect(0, 0, w + 60, h + 60);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        canvas.toBlob((pngBlob) => {
+          if (!pngBlob) return;
+          const a = document.createElement('a');
+          a.download = `arbol_genealogico_${titularDni || 'familiar'}.png`;
+          a.href = URL.createObjectURL(pngBlob);
+          a.click();
+          toast('Árbol descargado en formato PNG', 'success');
+        });
+      };
+      img.onerror = () => {
+        const a = document.createElement('a');
+        a.download = `arbol_genealogico_${titularDni || 'familiar'}.svg`;
+        a.href = url;
+        a.click();
+        toast('Árbol descargado en SVG', 'success');
+      };
+      img.src = url;
+    });
+  }
 
   // Mouse Drag to Pan
   if (treeViewport) {
@@ -843,6 +1034,15 @@
     const mainClass = opts.isMain ? 'tree-node--main' : '';
     const ghostClass = !nodo.encontrado ? 'tree-node--ghost' : '';
     const smClass = opts.small ? 'tree-node--sm' : '';
+
+    let relClass = '';
+    const relLower = (opts.relation || '').toLowerCase();
+    if (opts.isMain) relClass = 'tree-node--main';
+    else if (relLower.includes('padre') || relLower.includes('madre')) relClass = 'tree-node--parent';
+    else if (relLower.includes('cónyuge') || relLower.includes('espos') || relLower.includes('pareja')) relClass = 'tree-node--spouse';
+    else if (relLower.includes('hijo') || relLower.includes('hija')) relClass = 'tree-node--child';
+    else if (relLower.includes('herman')) relClass = 'tree-node--sibling';
+
     const icon = g === 'F' ? 'woman' : 'person';
     const relation = opts.relation ? `<div class="tree-node__relation">${escHtml(opts.relation)}</div>` : '';
     const meta = nodo.dni ? `DNI ${escHtml(nodo.dni)}` : (nodo.encontrado ? '' : 'No encontrado');
@@ -867,7 +1067,7 @@
       </div>` : '';
 
     return `
-      <div class="tree-node ${gClass} ${mainClass} ${ghostClass} ${smClass}" data-dni="${escHtml(nodo.dni || '')}" title="${escHtml(n)}">
+      <div class="tree-node ${gClass} ${mainClass} ${relClass} ${ghostClass} ${smClass}" data-dni="${escHtml(nodo.dni || '')}" title="${escHtml(n)}">
         ${relation}
         <div class="tree-node__avatar">
           <span class="material-symbols-outlined" style="font-size:20px">${icon}</span>
@@ -1080,6 +1280,7 @@
   }
 
   if (btnCloseC4) btnCloseC4.addEventListener('click', closeC4Modal);
+  if (btnPrintC4) btnPrintC4.addEventListener('click', () => window.print());
   document.querySelectorAll('[data-close-c4]').forEach(el => el.addEventListener('click', closeC4Modal));
 
   async function fetchC4Certificate(dni) {
@@ -1521,6 +1722,7 @@
       btnExportar.classList.remove('hidden');
       btnExportarJson.classList.remove('hidden');
       if (data.length > 0) {
+        addRecentSearch(q, searchMode);
         showDetail(data[0], 0);
         decrementConsultas();
       }
@@ -1549,8 +1751,16 @@
     btnClearSearch.classList.toggle('visible', val.length > 0);
 
     if (searchMode === 'dni') {
-      searchInput.value = val.replace(/\D/g, '').slice(0, 8);
+      const clean = val.replace(/\D/g, '').slice(0, 8);
+      if (searchInput.value !== clean) searchInput.value = clean;
+      const len = clean.length;
+      if (dniCounter) {
+        dniCounter.textContent = `${len}/8`;
+        dniCounter.classList.toggle('hidden', len === 0);
+        dniCounter.classList.toggle('dni-counter--valid', len === 8);
+      }
     } else {
+      if (dniCounter) dniCounter.classList.add('hidden');
       clearTimeout(debounce);
       const q = val.trim();
       if (q.length >= 3) {
@@ -1562,6 +1772,11 @@
   btnClearSearch.addEventListener('click', () => {
     searchInput.value = '';
     btnClearSearch.classList.remove('visible');
+    if (dniCounter) {
+      dniCounter.textContent = '0/8';
+      dniCounter.classList.add('hidden');
+      dniCounter.classList.remove('dni-counter--valid');
+    }
     searchInput.focus();
   });
 
@@ -1821,12 +2036,26 @@
     }
   }
 
+  const btnTogglePassword = $('btn-toggle-password');
+  const eyeIcon = $('eye-icon');
+  if (btnTogglePassword && eyeIcon && loginPass) {
+    btnTogglePassword.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isPass = loginPass.type === 'password';
+      loginPass.type = isPass ? 'text' : 'password';
+      eyeIcon.textContent = isPass ? 'visibility_off' : 'visibility';
+    });
+  }
+
   // Login form
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginError.classList.remove('show');
     btnLoginEl.disabled = true;
-    btnLoginEl.textContent = 'Verificando...';
+    btnLoginEl.innerHTML = `
+      <span class="qs-spinner" style="width:16px;height:16px;margin:0;border-width:2px;display:inline-block"></span>
+      <span>Verificando...</span>
+    `;
 
     try {
       const res = await fetch(`${API_BASE}/api/auth/login`, {
@@ -1840,6 +2069,7 @@
         saveAuth(data.token, data.username, data.rol, data.consultas_restantes);
         hideLoginScreen();
         loginForm.reset();
+        if (eyeIcon) eyeIcon.textContent = 'visibility';
         checkConnection();
         searchInput.focus();
       } else {
@@ -1852,7 +2082,10 @@
       loginError.classList.add('show');
     } finally {
       btnLoginEl.disabled = false;
-      btnLoginEl.textContent = 'Iniciar Sesión';
+      btnLoginEl.innerHTML = `
+        <span>Iniciar Sesión</span>
+        <span class="material-symbols-outlined btn-login__icon">arrow_forward</span>
+      `;
     }
   });
 
