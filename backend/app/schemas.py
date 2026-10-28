@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PersonaResponse(BaseModel):
@@ -78,15 +78,30 @@ class StatusResponse(BaseModel):
     database: str = "ok"
 
 
-class FrontendTokenResponse(BaseModel):
-    """Token de sesión para el frontend."""
+class EvidenciaArbol(BaseModel):
+    """Evidencia que sustenta una relación familiar."""
 
-    token: str
-    expires_in: int
+    codigo: str
+    descripcion: str
+    puntos: int
+
+
+class CandidatoArbol(BaseModel):
+    """Candidato alternativo para una relación familiar."""
+
+    dni: str | None = None
+    nombres: str | None = None
+    ap_pat: str | None = None
+    ap_mat: str | None = None
+    fecha_nac: date | str | None = None
+    sexo: str | None = None
+    confianza: int = 0
+    nivel_confianza: str = "baja"
+    evidencia: list[EvidenciaArbol] = Field(default_factory=list)
 
 
 class ArbolNodo(BaseModel):
-    """Nodo básico del árbol genealógico."""
+    """Nodo del árbol genealógico con confianza y evidencia."""
 
     dni: str | None = None
     nombres: str | None = None
@@ -102,8 +117,24 @@ class ArbolNodo(BaseModel):
     ubigeo_nac: str | None = None
     ubigeo_dir: str | None = None
     encontrado: bool = False
+    confianza: int | None = None
+    nivel_confianza: str | None = None
+    evidencia: list[EvidenciaArbol] = Field(default_factory=list)
+    candidatos: list[CandidatoArbol] = Field(default_factory=list)
+    tipo_relacion: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class ArbolMeta(BaseModel):
+    """Metadatos del proceso de construcción del árbol."""
+
+    version: str
+    limite_por_relacion: int
+    umbral_alta: int
+    umbral_media: int
+    candidatos_analizados_por_relacion: int
+    advertencias: list[str] = Field(default_factory=list)
 
 
 class ArbolResponse(BaseModel):
@@ -116,20 +147,24 @@ class ArbolResponse(BaseModel):
     abuela_paterna: ArbolNodo | None = None
     abuelo_materno: ArbolNodo | None = None
     abuela_materna: ArbolNodo | None = None
-    hermanos: list[ArbolNodo] = []
-    hijos: list[ArbolNodo] = []
-class CertificadoC4Response(BaseModel):
-    """Datos oficiales del Certificado de Inscripción C4 RENIEC."""
+    hermanos: list[ArbolNodo] = Field(default_factory=list)
+    hijos: list[ArbolNodo] = Field(default_factory=list)
+    meta: ArbolMeta | None = None
 
-    codigo_certificado: str
-    codigo_verificacion: str
-    fecha_emision_c4: str
+
+class FichaReferenciaC4Response(BaseModel):
+    """Ficha de referencia generada a partir de los datos del padrón.
+
+    No reproduce un certificado oficial: solo incluye un código interno de
+    referencia y los datos consultados. No hay MRZ, firma digital ni URL de
+    verificación porque el documento no tiene validez legal.
+    """
+
+    codigo_referencia: str
+    fecha_generacion: str
     persona: PersonaResponse
-    mrz_linea1: str
-    mrz_linea2: str
-    digito_verificador: str
-    firma_digital: str
-    url_verificacion: str
+    es_oficial: bool = False
+    aviso: str | None = None
 
 
 # ── Auth & Admin Schemas ──────────────────────────────────────
@@ -138,8 +173,8 @@ class CertificadoC4Response(BaseModel):
 class LoginRequest(BaseModel):
     """Datos de login."""
 
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=50)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class LoginResponse(BaseModel):
@@ -149,6 +184,7 @@ class LoginResponse(BaseModel):
     username: str
     rol: str
     consultas_restantes: int
+    expires_in: int | None = None
 
 
 class MeResponse(BaseModel):
@@ -179,14 +215,14 @@ class UsuarioResponse(BaseModel):
 class CrearUsuarioRequest(BaseModel):
     """Datos para crear un nuevo usuario."""
 
-    username: str
-    password: str
-    consultas_max: int = 100
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=72)
+    consultas_max: int = Field(default=100, ge=0, le=1_000_000)
 
 
 class ActualizarUsuarioRequest(BaseModel):
     """Datos para actualizar un usuario existente."""
 
-    consultas_max: int | None = None
+    consultas_max: int | None = Field(default=None, ge=0, le=1_000_000)
     activo: bool | None = None
-    password: str | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=72)

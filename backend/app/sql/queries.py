@@ -40,10 +40,17 @@ PERSONA_POR_DNI = f"""
     LIMIT 1
 """
 
-NC_EXPR = "build_nombre_completo(nombres, ap_pat, ap_mat)"
-NC_BUSQUEDA_EXPR = "build_nombre_busqueda(ap_pat, ap_mat, nombres)"
+NC_EXPR = "build_nombre_completo(p.nombres, p.ap_pat, p.ap_mat)"
+NC_BUSQUEDA_EXPR = """
+    lower(immutable_unaccent(trim(concat_ws(
+        ' ',
+        trim(coalesce(p.ap_pat, '')),
+        trim(coalesce(p.ap_mat, '')),
+        trim(coalesce(p.nombres, ''))
+    ))))
+"""
 
-MAX_CANDIDATOS = 100   # Candidatos óptimos para ranking ultra-preciso en < 30ms
+MAX_CANDIDATOS = 300   # Candidatos para re-ranking preciso
 
 # Selección ultrarrápida por índice GIN (search_vector)
 CANDIDATOS_TSQUERY = """
@@ -58,6 +65,23 @@ CANDIDATOS_DNI = """
     SELECT p.dni
     FROM personas p
     WHERE p.dni = :q OR p.dni LIKE :dni_prefix
+    LIMIT :cand_limit
+"""
+
+# Prefijos indexados para apellidos y nombres. Son la vía rápida cuando se
+# busca un único apellido o nombre muy común.
+CANDIDATOS_APELLIDO = """
+    SELECT p.dni
+    FROM personas p
+    WHERE immutable_unaccent(lower(p.ap_pat)) LIKE :prefix
+       OR immutable_unaccent(lower(p.ap_mat)) LIKE :prefix
+    LIMIT :cand_limit
+"""
+
+CANDIDATOS_NOMBRES = """
+    SELECT p.dni
+    FROM personas p
+    WHERE immutable_unaccent(lower(p.nombres)) LIKE :prefix
     LIMIT :cand_limit
 """
 
@@ -200,10 +224,10 @@ BUSCAR_PADRE_RANKED = f"""
       AND lower(p.ap_pat) = :hijo_ap_pat
       -- REGLA BIOLÓGICA ESTRICTA: El padre DEBE haber nacido antes que el hijo (mínimo 13 años)
       AND (
-          p.fecha_nac IS NULL 
-          OR CAST(:hijo_fecha_nac AS date) IS NULL 
+          p.fecha_nac IS NULL
+          OR CAST(:hijo_fecha_nac AS date) IS NULL
           OR (
-              p.fecha_nac < CAST(:hijo_fecha_nac AS date) 
+              p.fecha_nac < CAST(:hijo_fecha_nac AS date)
               AND EXTRACT(YEAR FROM age(CAST(:hijo_fecha_nac AS date), p.fecha_nac)) BETWEEN 13 AND 75
           )
       )
@@ -276,10 +300,10 @@ BUSCAR_MADRE_RANKED = f"""
       AND lower(p.ap_pat) = :hijo_ap_mat
       -- REGLA BIOLÓGICA ESTRICTA: La madre DEBE haber nacido antes que el hijo (mínimo 13 años)
       AND (
-          p.fecha_nac IS NULL 
-          OR CAST(:hijo_fecha_nac AS date) IS NULL 
+          p.fecha_nac IS NULL
+          OR CAST(:hijo_fecha_nac AS date) IS NULL
           OR (
-              p.fecha_nac < CAST(:hijo_fecha_nac AS date) 
+              p.fecha_nac < CAST(:hijo_fecha_nac AS date)
               AND EXTRACT(YEAR FROM age(CAST(:hijo_fecha_nac AS date), p.fecha_nac)) BETWEEN 13 AND 55
           )
       )
@@ -354,8 +378,8 @@ BUSCAR_HERMANOS_RANKED = f"""
       )
       -- REGLA BIOLÓGICA: La diferencia de edad entre hermanos no debe exceder el periodo reproductivo (<= 32 años)
       AND (
-          p.fecha_nac IS NULL 
-          OR CAST(:hijo_fecha_nac AS date) IS NULL 
+          p.fecha_nac IS NULL
+          OR CAST(:hijo_fecha_nac AS date) IS NULL
           OR ABS(EXTRACT(YEAR FROM age(p.fecha_nac, CAST(:hijo_fecha_nac AS date)))) <= 32
       )
     ORDER BY score DESC

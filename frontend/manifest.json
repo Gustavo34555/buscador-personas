@@ -1,7 +1,7 @@
 {
-  "name": "Buscador de Personas — RENIEC",
+  "name": "Buscador de Personas",
   "short_name": "Buscador",
-  "description": "Consulta el padrón de identificación de Perú por DNI o nombre completo.",
+  "description": "Consulta de referencia del padrón de identificación de Perú por DNI o nombre completo.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",

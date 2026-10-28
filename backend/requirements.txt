@@ -4,3 +4,6 @@ sqlalchemy==2.0.51
 psycopg2-binary==2.9.12
 python-dotenv==1.2.2
 httpx==0.28.1
+bcrypt==5.0.0
+PyJWT==2.13.0
+redis>=5.0.0

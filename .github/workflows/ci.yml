@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
 
 jobs:
   test:
@@ -14,26 +12,37 @@ jobs:
         working-directory: ./backend
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-        cache: "pip"
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install ruff pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
-    - name: Lint with Ruff
-      run: |
-        ruff check .
-        
-    - name: Run Pytest
-      env:
-        PYTHONPATH: .
-      run: |
-        pytest
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint with Ruff
+        run: ruff check .
+
+      - name: Run Pytest
+        env:
+          PYTHONPATH: .
+          APP_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+          JWT_SECRET: test-secret-para-pruebas-con-mas-de-32-caracteres
+          ALLOW_OPEN_ACCESS: "true"
+        run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JavaScript syntax
+        run: |
+          node --check frontend/app.js
+          node --check frontend/sw.js

@@ -2,43 +2,52 @@
   'use strict';
 
   /* ── Config ──────────────────────────────────────────────── */
-  const API_BASE =
-    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      ? 'http://127.0.0.1:8000'
-      : window.location.origin;
+  // La API se sirve siempre desde el mismo origen (Nginx hace el proxy).
+  // Evita CORS, cookies de terceros y mezclas de esquema http/https.
+  const API_BASE = window.location.origin;
 
   /* ── Auth State ──────────────────────────────────────────── */
-  let _jwtToken = localStorage.getItem('jwt_token') || null;
-  let _userRol = localStorage.getItem('user_rol') || null;
-  let _username = localStorage.getItem('username') || null;
-  let _consultasRestantes = parseInt(localStorage.getItem('consultas_restantes') || '0');
+  // El JWT vive únicamente en una cookie HttpOnly; el frontend nunca lo lee
+  // ni lo guarda. Solo mantiene datos de presentación en memoria.
+  let _userRol = null;
+  let _username = null;
+  let _consultasRestantes = 0;
+  let _authenticated = false;
 
   function apiHeaders(extra) {
-    const h = extra || {};
-    if (_jwtToken) h['Authorization'] = `Bearer ${_jwtToken}`;
-    return h;
+    return extra || {};
   }
 
-  function saveAuth(token, username, rol, consultas) {
-    _jwtToken = token;
-    _userRol = rol;
-    _username = username;
-    _consultasRestantes = consultas;
-    localStorage.setItem('jwt_token', token);
-    localStorage.setItem('user_rol', rol);
-    localStorage.setItem('username', username);
-    localStorage.setItem('consultas_restantes', String(consultas));
+  function applySession(data) {
+    _username = data.username || null;
+    _userRol = data.rol || null;
+    _consultasRestantes = Number.isFinite(Number(data.consultas_restantes))
+      ? Number(data.consultas_restantes)
+      : 0;
+    _authenticated = !!_username;
   }
 
   function clearAuth() {
-    _jwtToken = null; _userRol = null; _username = null; _consultasRestantes = 0;
-    localStorage.removeItem('jwt_token');
-    localStorage.removeItem('user_rol');
-    localStorage.removeItem('username');
-    localStorage.removeItem('consultas_restantes');
+    _userRol = null; _username = null; _consultasRestantes = 0; _authenticated = false;
   }
 
-  function isLoggedIn() { return !!_jwtToken; }
+  function clearLegacyAuthStorage() {
+    // Migración: versiones anteriores guardaban el JWT en localStorage.
+    ['jwt_token', 'user_rol', 'username', 'consultas_restantes'].forEach((k) => {
+      try { localStorage.removeItem(k); } catch { /* almacenamiento no disponible */ }
+    });
+  }
+
+  function isLoggedIn() { return _authenticated; }
+
+  async function apiFetch(url, options) {
+    const opts = Object.assign({ credentials: 'include' }, options || {});
+    const res = await fetch(url, opts);
+    if (res.status === 401 && !String(url).includes('/api/auth/login')) {
+      showLoginScreen();
+    }
+    return res;
+  }
 
 
   /* ── DOM refs ────────────────────────────────────────────── */
@@ -136,9 +145,12 @@
     return [p.nombres, p.ap_pat, p.ap_mat].filter(Boolean).join(' ').trim();
   }
   function escHtml(s) {
-    const d = document.createElement('div');
-    d.textContent = s || '';
-    return d.innerHTML;
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
   function sexoLetra(s) {
     const t = (s || '').trim().toUpperCase();
@@ -214,7 +226,12 @@
   function toast(msg, type = 'info') {
     const el = document.createElement('div');
     el.className = `toast toast--${type}`;
-    el.innerHTML = `<span class="material-symbols-outlined">${TOAST_ICONS[type]}</span><span>${msg}</span>`;
+    const icon = document.createElement('span');
+    icon.className = 'material-symbols-outlined';
+    icon.textContent = TOAST_ICONS[type] || TOAST_ICONS.info;
+    const text = document.createElement('span');
+    text.textContent = String(msg == null ? '' : msg);
+    el.append(icon, text);
     toastContainer.appendChild(el);
     setTimeout(() => {
       el.style.opacity = '0';
@@ -229,7 +246,7 @@
     const t = setTimeout(() => c.abort(), 3000);
     let ok = false;
     try {
-      const res = await fetch(`${API_BASE}/api/status`, { signal: c.signal });
+      const res = await apiFetch(`${API_BASE}/api/status`, { signal: c.signal });
       ok = res.ok;
     } catch {
       ok = false;
@@ -436,7 +453,7 @@
               <span class="material-symbols-outlined" style="font-size:15px">account_tree</span>
               <span>Árbol</span>
             </button>
-            <button class="btn-inline-action btn-inline-action--c4" data-inline-action="c4" data-dni="${escHtml(p.dni)}">
+            <button class="btn-inline-action btn-inline-action--c4" data-inline-action="c4" data-dni="${escHtml(p.dni)}" title="Ficha de referencia (no oficial)">
               <span class="material-symbols-outlined" style="font-size:15px">print</span>
               <span>C4</span>
             </button>
@@ -502,13 +519,13 @@
     resultadoEl.classList.add('hidden');
 
     try {
-      const res = await fetch(`${API_BASE}/scraping/ruc/${encodeURIComponent(dni)}`, { headers: apiHeaders() });
+      const res = await apiFetch(`${API_BASE}/scraping/ruc/${encodeURIComponent(dni)}`, { headers: apiHeaders() });
       const data = await res.json();
 
       if (res.status === 429) {
         const retry = res.headers.get('Retry-After');
         const msg = retry ? `Límite alcanzado. Intenta en ${retry} seg.` : 'Límite de consultas alcanzado. Intenta más tarde.';
-        resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--warn"><span class="material-symbols-outlined">hourglass_empty</span><span>${msg}</span></div>`;
+        resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--warn"><span class="material-symbols-outlined">hourglass_empty</span><span>${escHtml(msg)}</span></div>`;
       } else if (res.status === 401) {
         resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--error"><span class="material-symbols-outlined">lock</span><span>Sesión expirada. Recarga la página.</span></div>`;
       } else if (!res.ok) {
@@ -527,6 +544,7 @@
           </div>`;
       }
       resultadoEl.classList.remove('hidden');
+      if (res.ok) refreshUserInfo();
     } catch {
       resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--error"><span class="material-symbols-outlined">error</span><span>Error de conexión al consultar RUC</span></div>`;
       resultadoEl.classList.remove('hidden');
@@ -588,8 +606,8 @@
             <span class="material-symbols-outlined">account_tree</span>
             <span>Árbol</span>
           </button>
-          <button class="btn-action" id="btn-c4-direct" title="Ver Certificado C4 Oficial">
-            <span class="material-symbols-outlined" style="color:#38bdf8">verified</span>
+          <button class="btn-action" id="btn-c4-direct" title="Ver ficha de referencia (no oficial)">
+            <span class="material-symbols-outlined" style="color:#38bdf8">description</span>
             <span>C4</span>
           </button>
         </div>
@@ -694,7 +712,7 @@
             </div>
           </div>
 
-          <!-- 5. Documento y Fechas RENIEC -->
+          <!-- 5. Documento y Fechas -->
           <div>
             <p class="detail-section__title">
               <span class="material-symbols-outlined">event_repeat</span> Cronología del Documento
@@ -748,7 +766,7 @@
     if (copyFullBtn) {
       copyFullBtn.addEventListener('click', () => {
         const fullSummary = [
-          `--- FICHA RENIEC ---`,
+          `--- FICHA DE REFERENCIA ---`,
           `DNI: ${p.dni || '-'}${p.dig_ruc ? ' - ' + p.dig_ruc : ''}`,
           `Nombre Completo: ${nombre(p)}`,
           `Nombres: ${p.nombres || '-'}`,
@@ -778,7 +796,7 @@
     if (copyReportBtn) {
       copyReportBtn.addEventListener('click', () => {
         const fullReport = [
-          `👤 *DATOS PERSONALES - RENIEC*`,
+          `👤 *DATOS PERSONALES (REFERENCIA)*`,
           `▫️ *DNI:* ${p.dni || '-'}${p.dig_ruc ? ' (RUC: ' + rucDisplay(p) + ')' : ''}`,
           `▫️ *Nombre:* ${nombre(p)}`,
           `▫️ *Sexo:* ${p.sexo === '1' || p.sexo === 'M' ? 'Masculino' : p.sexo === '2' || p.sexo === 'F' ? 'Femenino' : (p.sexo || '-')}`,
@@ -1006,7 +1024,7 @@
 
   async function fetchArbol(dni) {
     try {
-      const res = await fetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/arbol`, { headers: apiHeaders() });
+      const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/arbol?limite=200`, { headers: apiHeaders() });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         treeContainer.innerHTML = `<div class="tree-empty">
@@ -1017,6 +1035,7 @@
       }
       const data = await res.json();
       renderArbol(data);
+      refreshUserInfo();
     } catch {
       treeContainer.innerHTML = `<div class="tree-empty">
         <span class="material-symbols-outlined tree-empty__icon">cloud_off</span>
@@ -1024,6 +1043,23 @@
         <p class="tree-empty__desc">No se pudo conectar al servidor para construir el árbol genealógico</p>
       </div>`;
     }
+  }
+
+  function tipoRelacionLabel(tipo) {
+    const etiquetas = {
+      hermano_completo: 'Hermano completo',
+      medio_hermano_paterno: 'Medio hermano (padre)',
+      medio_hermano_materno: 'Medio hermano (madre)',
+      hermano_probable: 'Hermano probable',
+      hijo: 'Hijo',
+      hija: 'Hija',
+      hijo_probable: 'Hijo probable',
+      hija_probable: 'Hija probable',
+      padre: 'Padre',
+      madre: 'Madre',
+      titular: 'Titular',
+    };
+    return etiquetas[tipo] || '';
   }
 
   function treeNodeHtml(nodo, opts = {}) {
@@ -1034,6 +1070,9 @@
     const mainClass = opts.isMain ? 'tree-node--main' : '';
     const ghostClass = !nodo.encontrado ? 'tree-node--ghost' : '';
     const smClass = opts.small ? 'tree-node--sm' : '';
+    const probableClass = (opts.probable || nodo.tipo_relacion === 'hermano_probable')
+      ? 'tree-node--probable'
+      : '';
 
     let relClass = '';
     const relLower = (opts.relation || '').toLowerCase();
@@ -1044,10 +1083,34 @@
     else if (relLower.includes('herman')) relClass = 'tree-node--sibling';
 
     const icon = g === 'F' ? 'woman' : 'person';
-    const relation = opts.relation ? `<div class="tree-node__relation">${escHtml(opts.relation)}</div>` : '';
+    const relationLabel = opts.relation || tipoRelacionLabel(nodo.tipo_relacion);
+    const relation = relationLabel ? `<div class="tree-node__relation">${escHtml(relationLabel)}</div>` : '';
     const meta = nodo.dni ? `DNI ${escHtml(nodo.dni)}` : (nodo.encontrado ? '' : 'No encontrado');
     const age = nodo.edad_anios ? ` · ${nodo.edad_anios}a` : '';
     const ubigeo = nodo.ubigeo_dir && !opts.small ? `<div class="tree-node__ubigeo"><span class="material-symbols-outlined" style="font-size:10px">location_on</span>${escHtml(nodo.ubigeo_dir)}</div>` : '';
+
+    const confianza = Number(nodo.confianza);
+    const tieneConfianza = nodo.encontrado && !opts.isMain && Number.isFinite(confianza);
+    const nivel = String(nodo.nivel_confianza || 'baja').toLowerCase();
+    const evidencia = (nodo.evidencia || [])
+      .map((e) => `${e.descripcion || e.codigo || ''}${e.puntos != null ? ` (+${e.puntos})` : ''}`)
+      .filter(Boolean);
+    const confidenceHtml = tieneConfianza
+      ? `<div class="tree-node__confidence tree-node__confidence--${escHtml(nivel)}" title="${escHtml(evidencia.length ? `Evidencia:\n${evidencia.join('\n')}` : 'Sin evidencia detallada')}">
+           <span class="tree-node__confidence-dot"></span>${confianza}% ${escHtml(nivel)}
+         </div>`
+      : '';
+
+    const alternativas = nodo.candidatos || [];
+    const alternativasHtml = alternativas.length
+      ? `<div class="tree-node__candidates" title="${escHtml(alternativas.map((c) => {
+          const cn = [c.nombres, c.ap_pat, c.ap_mat].filter(Boolean).join(' ') || c.dni || 'Sin identificar';
+          return `${cn} — ${c.confianza != null ? c.confianza + '%' : 'sin confianza'}${c.dni ? ` (DNI ${c.dni})` : ''}`;
+        }).join('\n'))}">
+           <span class="material-symbols-outlined" style="font-size:11px">alt_route</span>
+           ${alternativas.length} alternativa${alternativas.length !== 1 ? 's' : ''}
+         </div>`
+      : '';
 
     // Action buttons inside node
     const actionsHtml = nodo.dni && nodo.encontrado ? `
@@ -1060,20 +1123,22 @@
           <span class="material-symbols-outlined" style="font-size:11px">visibility</span>
           <span>Ficha</span>
         </button>
-        <button class="btn-node-mini" data-tree-action="c4" data-dni="${escHtml(nodo.dni)}" title="Generar C4">
+        <button class="btn-node-mini" data-tree-action="c4" data-dni="${escHtml(nodo.dni)}" title="Generar ficha de referencia (no oficial)">
           <span class="material-symbols-outlined" style="font-size:11px">print</span>
           <span>C4</span>
         </button>
       </div>` : '';
 
     return `
-      <div class="tree-node ${gClass} ${mainClass} ${relClass} ${ghostClass} ${smClass}" data-dni="${escHtml(nodo.dni || '')}" title="${escHtml(n)}">
+      <div class="tree-node ${gClass} ${mainClass} ${relClass} ${ghostClass} ${smClass} ${probableClass}" data-dni="${escHtml(nodo.dni || '')}" title="${escHtml(n)}">
         ${relation}
         <div class="tree-node__avatar">
           <span class="material-symbols-outlined" style="font-size:20px">${icon}</span>
         </div>
         <div class="tree-node__name">${escHtml(n)}</div>
         <div class="tree-node__meta">${meta}${age}</div>
+        ${confidenceHtml}
+        ${alternativasHtml}
         ${ubigeo}
         ${actionsHtml}
       </div>
@@ -1101,8 +1166,12 @@
     if (treeStatsBar) {
       const gpCount = [data.abuelo_paterno, data.abuela_paterna, data.abuelo_materno, data.abuela_materna].filter(x => x && x.encontrado).length;
       const parentsCount = [data.padre, data.madre].filter(x => x && x.encontrado).length;
-      const sibCount = (data.hermanos || []).length;
-      const childrenCount = (data.hijos || []).length;
+      const todosHermanos = data.hermanos || [];
+      const sibCount = todosHermanos.filter(h => h.tipo_relacion !== 'hermano_probable').length;
+      const probCount = todosHermanos.length - sibCount;
+      const todosHijos = data.hijos || [];
+      const childrenCount = todosHijos.filter(h => !String(h.tipo_relacion || '').endsWith('_probable')).length;
+      const childProbCount = todosHijos.length - childrenCount;
 
       let statsHtml = `
         <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#a855f7">person</span><strong>1</strong> Titular</span>
@@ -1112,10 +1181,33 @@
       if (sibCount > 0) {
         statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#10b981">group</span><strong>${sibCount}</strong> Hermanos</span>`;
       }
+      if (probCount > 0) {
+        statsHtml += `<span class="tree-stat-chip tree-stat-chip--probable"><span class="material-symbols-outlined" style="font-size:13px; color:#fbbf24">help</span><strong>${probCount}</strong> Probables</span>`;
+      }
       if (childrenCount > 0) {
         statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#0284c7">child_care</span><strong>${childrenCount}</strong> Hijos</span>`;
       }
+      if (childProbCount > 0) {
+        statsHtml += `<span class="tree-stat-chip tree-stat-chip--probable"><span class="material-symbols-outlined" style="font-size:13px; color:#fbbf24">help</span><strong>${childProbCount}</strong> Hijos prob.</span>`;
+      }
       treeStatsBar.innerHTML = statsHtml;
+
+      const advertencias = (data.meta && data.meta.advertencias) || [];
+      if (advertencias.length) {
+        const warn = document.createElement('div');
+        warn.className = 'tree-warnings';
+        const icon = document.createElement('span');
+        icon.className = 'material-symbols-outlined';
+        icon.textContent = 'info';
+        const list = document.createElement('ul');
+        advertencias.forEach((texto) => {
+          const li = document.createElement('li');
+          li.textContent = texto;
+          list.appendChild(li);
+        });
+        warn.append(icon, list);
+        treeStatsBar.appendChild(warn);
+      }
     }
 
     let html = '<div class="tree">';
@@ -1161,32 +1253,57 @@
     }
 
     // ── Level 2: Person + Siblings ──
-    const hermanos = data.hermanos || [];
+    const todosHermanos = data.hermanos || [];
+    const hermanos = todosHermanos.filter(h => h.tipo_relacion !== 'hermano_probable');
+    const probables = todosHermanos.filter(h => h.tipo_relacion === 'hermano_probable');
     html += '<p class="tree-gen-label">Persona' + (hermanos.length > 0 ? ' y Hermanos' : '') + '</p>';
     html += '<div class="tree-level"><div class="tree-siblings-row">';
     hermanos.forEach((h, i) => {
       if (i === Math.floor(hermanos.length / 2)) {
         html += treeNodeHtml(p, { isMain: true, relation: 'Titular' });
       }
-      html += treeNodeHtml(h, { relation: 'Hermano/a' });
+      html += treeNodeHtml(h, { relation: tipoRelacionLabel(h.tipo_relacion) || 'Hermano/a' });
     });
     if (hermanos.length === 0) {
       html += treeNodeHtml(p, { isMain: true, relation: 'Titular' });
     }
-    html += '</div></div>';
+    html += '</div>';
+    if (probables.length > 0) {
+      html += `<details class="tree-probables">
+        <summary><span class="material-symbols-outlined" style="font-size:14px">help</span> ${probables.length} hermano(s) probable(s) — baja confianza</summary>
+        <div class="tree-siblings-row tree-siblings-row--probables">`;
+      probables.forEach(h => {
+        html += treeNodeHtml(h, { relation: 'Hermano probable', probable: true });
+      });
+      html += '</div></details>';
+    }
+    html += '</div>';
 
     // ── Level 3: Children ──
-    const hijos = data.hijos || [];
-    if (hijos.length > 0) {
+    const todosHijos = data.hijos || [];
+    const hijos = todosHijos.filter(h => !String(h.tipo_relacion || '').endsWith('_probable'));
+    const hijosProbables = todosHijos.filter(h => String(h.tipo_relacion || '').endsWith('_probable'));
+    if (todosHijos.length > 0) {
       html += '<div class="tree-connector"></div>';
       html += '<p class="tree-gen-label">Hijos</p>';
-      html += '<div class="tree-level"><div class="tree-branch">';
-      hijos.forEach(h => {
-        html += '<div class="tree-branch-child">';
-        html += treeNodeHtml(h, { relation: 'Hijo/a' });
-        html += '</div>';
-      });
-      html += '</div></div>';
+      if (hijos.length > 0) {
+        html += '<div class="tree-level"><div class="tree-branch">';
+        hijos.forEach(h => {
+          html += '<div class="tree-branch-child">';
+          html += treeNodeHtml(h, { relation: tipoRelacionLabel(h.tipo_relacion) || 'Hijo/a' });
+          html += '</div>';
+        });
+        html += '</div></div>';
+      }
+      if (hijosProbables.length > 0) {
+        html += `<details class="tree-probables">
+          <summary><span class="material-symbols-outlined" style="font-size:14px">help</span> ${hijosProbables.length} hijo(s) probable(s) — baja confianza</summary>
+          <div class="tree-level"><div class="tree-siblings-row tree-siblings-row--probables">`;
+        hijosProbables.forEach(h => {
+          html += treeNodeHtml(h, { relation: tipoRelacionLabel(h.tipo_relacion) || 'Hijo/a probable', probable: true });
+        });
+        html += '</div></div></details>';
+      }
     }
 
     html += '</div>';
@@ -1232,45 +1349,35 @@
 
 
   /* ═══════════════════════════════════════════════════════════════════
-     CERTIFICADO DE INSCRIPCIÓN C4 — RENIEC
+     FICHA DE REFERENCIA C4 — DATOS DEL PADRÓN (NO OFICIAL)
      ═══════════════════════════════════════════════════════════════════ */
-  function openC4Modal(dni) {
+  async function openC4Modal(dni) {
     if (!c4Modal) return;
-
-    // 1. Obtener los datos de la persona inmediatamente
-    let p = personaSeleccionada && String(personaSeleccionada.dni) === String(dni)
-      ? personaSeleccionada
-      : resultados.find(x => String(x.dni) === String(dni));
-
-    if (!p && personaSeleccionada) p = personaSeleccionada;
-
-    if (p) {
-      // Renderizado instantáneo (0ms)
-      const ahora = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const fEmision = `${pad(ahora.getDate())}/${pad(ahora.getMonth()+1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
-      const codeVerif = (String(dni) + Math.random().toString(36).substring(2, 8)).toUpperCase().slice(0, 12);
-      const dataInstant = {
-        codigo_certificado: `C4-${ahora.getFullYear()}-${dni}-${codeVerif.slice(0, 6)}`,
-        codigo_verificacion: codeVerif,
-        fecha_emision_c4: fEmision,
-        persona: p,
-        mrz_linea1: `I<PER${dni}<<<<<<<<<<<<<<<<<<`.slice(0, 30),
-        mrz_linea2: `0001010M9912310PER<<<<<<<<<<<1`.slice(0, 30),
-        digito_verificador: p.dig_ruc ? String(p.dig_ruc) : '0',
-        firma_digital: `SIG-${dni}-CERT-RENIEC-SHA256`,
-        url_verificacion: `${window.location.origin}#c4=${dni}&v=${codeVerif}`
-      };
-      renderC4Certificate(dataInstant);
-    } else {
-      c4Container.innerHTML = '<div class="c4-loading"><div class="qs-spinner"></div><p>Generando Certificado C4 Oficial...</p></div>';
-    }
 
     c4Modal.classList.add('open');
     document.body.style.overflow = 'hidden';
+    c4Container.innerHTML = '<div class="c4-loading"><div class="qs-spinner"></div><p>Generando ficha de referencia (no oficial)...</p></div>';
 
-    // 2. Traer firma oficial en segundo plano (sin bloquear al usuario)
-    fetchC4Certificate(dni);
+    try {
+      const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/c4`, { headers: apiHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        renderC4Certificate(data);
+        refreshUserInfo();
+        return;
+      }
+
+      const body = await res.json().catch(() => null);
+      c4Container.innerHTML = `<div class="c4-loading">
+        <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">info</span>
+        <p>${escHtml((body && body.detail) || 'No se pudo generar la ficha de referencia')}</p>
+      </div>`;
+    } catch {
+      c4Container.innerHTML = `<div class="c4-loading">
+        <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">cloud_off</span>
+        <p>Error de conexión al generar la ficha</p>
+      </div>`;
+    }
   }
 
   function closeC4Modal() {
@@ -1283,39 +1390,16 @@
   if (btnPrintC4) btnPrintC4.addEventListener('click', () => window.print());
   document.querySelectorAll('[data-close-c4]').forEach(el => el.addEventListener('click', closeC4Modal));
 
-  async function fetchC4Certificate(dni) {
-    try {
-      const res = await fetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/c4`, { headers: apiHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        renderC4Certificate(data);
-      }
-    } catch (e) {
-      console.warn('C4 sync notice:', e);
-    }
-  }
-
-  /* ── Official RENIEC Consultas en Línea SVG Logo ──────────── */
-  function generateReniecConsultasLogoSVG() {
-    return `<svg viewBox="0 0 240 68" width="180" height="52" xmlns="http://www.w3.org/2000/svg">
-      <!-- Burgundy/Red Badge Background -->
-      <rect x="180" y="4" width="54" height="60" rx="6" fill="#881337" stroke="#ffffff" stroke-width="1.5"/>
-      <circle cx="196" cy="24" r="7" fill="#ffffff"/>
-      <path d="M187 48 C187 38 205 38 205 48 Z" fill="#ffffff"/>
-      <circle cx="216" cy="20" r="5.5" fill="#ffffff"/>
-      <path d="M209 44 C209 36 223 36 223 44 Z" fill="#ffffff"/>
-      
-      <!-- Fingerprint icon badge -->
-      <circle cx="207" cy="50" r="11" fill="#f43f5e" stroke="#ffffff" stroke-width="1.5"/>
-      <path d="M203 50 A 4 4 0 0 1 211 50 A 6 6 0 0 1 203 54" stroke="#ffffff" stroke-width="1.2" fill="none"/>
-      <path d="M205 50 A 2 2 0 0 1 209 50" stroke="#ffffff" stroke-width="1.2" fill="none"/>
-
-      <!-- Left Text Box -->
-      <text x="6" y="15" fill="#ffffff" font-family="Arial, sans-serif" font-size="11" font-weight="bold">Consultas en línea</text>
-      <rect x="4" y="20" width="170" height="34" rx="3" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
-      <text x="14" y="46" fill="#003f7a" font-family="Arial Black, Impact, sans-serif" font-size="24" font-weight="900" letter-spacing="1">RENIEC</text>
-      <rect x="4" y="55" width="170" height="10" fill="#003f7a"/>
-      <text x="8" y="62.5" fill="#ffffff" font-family="Arial, sans-serif" font-size="4.5" font-weight="bold" letter-spacing="0.2">REGISTRO NACIONAL DE IDENTIFICACIÓN Y ESTADO CIVIL</text>
+  /* ── Logo neutro de la ficha de referencia ────────────────── */
+  function generateReferenceLogoSVG() {
+    return `<svg viewBox="0 0 240 68" width="180" height="52" xmlns="http://www.w3.org/2000/svg" aria-label="Buscador de Personas">
+      <rect x="4" y="4" width="232" height="60" rx="8" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+      <circle cx="30" cy="30" r="12" fill="none" stroke="#818cf8" stroke-width="2.5"/>
+      <path d="M15 54c0-7 6-13 15-13s15 6 15 13" fill="none" stroke="#818cf8" stroke-width="2.5"/>
+      <circle cx="45" cy="47" r="7" fill="#0f172a" stroke="#38bdf8" stroke-width="2"/>
+      <line x1="50" y1="52" x2="57" y2="59" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round"/>
+      <text x="66" y="30" fill="#f8fafc" font-family="Arial, sans-serif" font-size="15" font-weight="bold">Buscador de Personas</text>
+      <text x="66" y="47" fill="#94a3b8" font-family="Arial, sans-serif" font-size="9">Ficha de referencia — no oficial</text>
     </svg>`;
   }
 
@@ -1345,37 +1429,41 @@
 
   function renderC4Certificate(data) {
     const p = data.persona || {};
-    const dv = data.digito_verificador || p.dig_ruc || '0';
     const nac = parseUbigeoParts(p.ubigeo_nac);
     const dom = parseUbigeoParts(p.ubigeo_dir);
 
     const ahora = new Date();
     const pad = (n) => String(n).padStart(2, '0');
-    const fEmision = data.fecha_emision_c4 || `${pad(ahora.getDate())}/${pad(ahora.getMonth()+1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
-    const codeVerif = data.codigo_verificacion || 'B02833881';
+    const fEmision = data.fecha_generacion || `${pad(ahora.getDate())}/${pad(ahora.getMonth()+1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
+    const codigoRef = data.codigo_referencia || '';
 
     const html = `
       <div class="c4-document" id="c4-document">
         <!-- Watermark text -->
-        <div class="reniec-watermark-text">MATCH SCANNING</div>
+        <div class="reniec-watermark-text">REFERENCIA</div>
+
+        <div class="c4-disclaimer" role="note">
+          <span class="material-symbols-outlined" style="font-size:16px">info</span>
+          <span>${escHtml(data.aviso || 'Documento de referencia generado a partir de los datos del padrón. No es un certificado oficial de RENIEC y no tiene validez legal.')}</span>
+        </div>
 
         <div>
-          <!-- 1. Encabezado Oficial -->
+          <!-- 1. Encabezado de referencia -->
           <div class="reniec-sheet__header">
-            <div class="reniec-sheet__logo">${generateReniecConsultasLogoSVG()}</div>
+            <div class="reniec-sheet__logo">${generateReferenceLogoSVG()}</div>
             <div class="reniec-sheet__header-titles">
-              <h1>REGISTRO NACIONAL DE IDENTIFICACIÓN Y ESTADO CIVIL</h1>
-              <h2>SERVICIO DE CONSULTAS EN LINEA</h2>
+              <h1>FICHA DE REFERENCIA DE IDENTIFICACIÓN</h1>
+              <h2>DATOS DEL PADRÓN CONSULTADO — NO OFICIAL</h2>
             </div>
           </div>
           <div class="reniec-sheet__divider"></div>
 
           <!-- 2. Cuerpo Estructurado de Datos -->
           <div class="reniec-fields-list">
-            <!-- CUI -->
+            <!-- DNI -->
             <div class="reniec-row">
-              <div class="reniec-label">CUI:</div>
-              <div class="reniec-value">${escHtml(p.dni || '-')}${dv ? ` - ${dv}` : ''}</div>
+              <div class="reniec-label">DNI:</div>
+              <div class="reniec-value">${escHtml(p.dni || '-')}</div>
             </div>
 
             <!-- Apellido Paterno -->
@@ -1405,36 +1493,16 @@
                   <span class="reniec-value">${escHtml(p.fecha_nac || '-')}</span>
                 </div>
                 <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Departamento:</span>
-                  <span class="reniec-value">${escHtml(nac.dpto)}</span>
-                </div>
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Provincia:</span>
-                  <span class="reniec-value">${escHtml(nac.prov)}</span>
-                </div>
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Distrito:</span>
-                  <span class="reniec-value">${escHtml(nac.dist)}</span>
+                  <span class="reniec-sublabel">Ubigeo:</span>
+                  <span class="reniec-value">${escHtml(p.ubigeo_nac || '-')}</span>
                 </div>
               </div>
-            </div>
-
-            <!-- Grado de Instrucción -->
-            <div class="reniec-row">
-              <div class="reniec-label">Grado de Instrucción:</div>
-              <div class="reniec-value">${escHtml(p.grado_instruccion || 'SUPERIOR COMPLETA')}</div>
             </div>
 
             <!-- Estado Civil -->
             <div class="reniec-row">
               <div class="reniec-label">Estado Civil:</div>
-              <div class="reniec-value">${escHtml(p.est_civil || 'SOLTERO(A)')}</div>
-            </div>
-
-            <!-- Estatura -->
-            <div class="reniec-row">
-              <div class="reniec-label">Estatura:</div>
-              <div class="reniec-value">${escHtml(p.estatura || '166')}</div>
+              <div class="reniec-value">${escHtml(p.est_civil || '-')}</div>
             </div>
 
             <!-- Fecha de Inscripción -->
@@ -1455,16 +1523,10 @@
               <div class="reniec-value">${escHtml(p.madre || '-')}</div>
             </div>
 
-            <!-- Fecha de Emisión -->
+            <!-- Fecha de Emisión del DNI -->
             <div class="reniec-row">
-              <div class="reniec-label">Fecha de Emisión:</div>
+              <div class="reniec-label">Emisión del DNI:</div>
               <div class="reniec-value">${escHtml(p.fch_emision || '-')}</div>
-            </div>
-
-            <!-- Restricción -->
-            <div class="reniec-row">
-              <div class="reniec-label">Restricción:</div>
-              <div class="reniec-value">NINGUNA</div>
             </div>
 
             <!-- Domicilio -->
@@ -1490,28 +1552,10 @@
               </div>
             </div>
 
-            <!-- Fecha de Caducidad -->
+            <!-- Fecha de Caducidad del DNI -->
             <div class="reniec-row">
-              <div class="reniec-label">Fecha de Caducidad:</div>
+              <div class="reniec-label">Caducidad del DNI:</div>
               <div class="reniec-value">${escHtml(p.fch_caducidad || '-')}</div>
-            </div>
-
-            <!-- Fecha de Fallecimiento -->
-            <div class="reniec-row">
-              <div class="reniec-label">Fecha de Fallecimiento:</div>
-              <div class="reniec-value">-</div>
-            </div>
-
-            <!-- Glosa Informativa -->
-            <div class="reniec-row">
-              <div class="reniec-label">Glosa Informativa:</div>
-              <div class="reniec-value">-</div>
-            </div>
-
-            <!-- Observación -->
-            <div class="reniec-row">
-              <div class="reniec-label">Observación:</div>
-              <div class="reniec-value">-</div>
             </div>
           </div>
         </div>
@@ -1522,31 +1566,24 @@
           <div class="reniec-consult-grid">
             <div class="reniec-consult-row">
               <span class="reniec-consult-lbl">Usuario:</span>
-              <span class="reniec-consult-val">00000000 - None</span>
+              <span class="reniec-consult-val">${escHtml(_username || '-')}</span>
             </div>
             <div class="reniec-consult-row">
-              <span class="reniec-consult-lbl">Código:</span>
-              <span class="reniec-consult-val">${escHtml(codeVerif)}</span>
+              <span class="reniec-consult-lbl">Código de referencia:</span>
+              <span class="reniec-consult-val">${escHtml(codigoRef || '-')}</span>
             </div>
             <div class="reniec-consult-row">
               <span class="reniec-consult-lbl">Entidad:</span>
-              <span class="reniec-consult-val">-</span>
+              <span class="reniec-consult-val">Buscador de Personas</span>
             </div>
             <div class="reniec-consult-row">
-              <span class="reniec-consult-lbl">ID User:</span>
-              <span class="reniec-consult-val">6557727605</span>
-            </div>
-            <div class="reniec-consult-row">
-              <span class="reniec-consult-lbl">Verificación de Consulta:</span>
-              <span class="reniec-consult-val">
-                Puede verificar la informacion en linea:<br/>
-                https://cel.reniec.gob.pe/celconsulta/c?nuo=${escHtml(codeVerif || 'Nzg1MDIk5MDQ')}
-              </span>
+              <span class="reniec-consult-lbl">Validez:</span>
+              <span class="reniec-consult-val">Documento de referencia sin validez legal</span>
             </div>
           </div>
 
           <div class="reniec-sheet__bottom-stamp">
-            Registro Nacional de Identificacion y Estado Civil - RENIEC© 2016 ${escHtml(fEmision)}
+            Ficha de referencia generada por Buscador de Personas — no oficial · ${escHtml(fEmision)}
           </div>
         </div>
       </div>
@@ -1688,7 +1725,7 @@
     try {
       let data;
       if (searchMode === 'dni') {
-        const res = await fetch(`${API_BASE}/persona/${encodeURIComponent(q)}`, {
+        const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(q)}`, {
           signal: abortCtrl.signal, headers: apiHeaders(),
         });
         if (res.status === 404) {
@@ -1700,7 +1737,7 @@
           data = [await res.json()]; toast('Persona localizada con éxito', 'success');
         }
       } else {
-        const res = await fetch(`${API_BASE}/buscar?q=${encodeURIComponent(q)}&limit=${limiteSelect.value}`, {
+        const res = await apiFetch(`${API_BASE}/buscar?q=${encodeURIComponent(q)}&limit=${limiteSelect.value}`, {
           signal: abortCtrl.signal, headers: apiHeaders(),
         });
         if (!res.ok) {
@@ -1781,6 +1818,13 @@
   });
 
   /* ── CSV & JSON Export ────────────────────────────────────── */
+  function csvCell(value) {
+    let s = String(value == null ? '' : value);
+    // Neutraliza fórmulas al abrir el CSV en Excel/LibreOffice.
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+
   btnExportar.addEventListener('click', () => {
     if (!resultados.length) return;
     const h = ['DNI', 'Dígito RUC', 'Nombres', 'Ape. Paterno', 'Ape. Materno', 'Sexo', 'Estado Civil', 'Fecha Nacimiento', 'Edad', 'Padre', 'Madre', 'Dirección', 'Ubigeo Dom', 'Ubigeo Nac', 'Fch Emisión', 'Fch Inscripción', 'Fch Caducidad'];
@@ -1790,13 +1834,11 @@
       p.padre || '', p.madre || '', p.direccion || '', p.ubigeo_dir || '', p.ubigeo_nac || '',
       p.fch_emision || '', p.fch_inscripcion || '', p.fch_caducidad || '',
     ]);
-    const csv = [h.join(','), ...r.map((row) =>
-      row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')
-    )].join('\n');
+    const csv = [h.map(csvCell).join(','), ...r.map((row) => row.map(csvCell).join(','))].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob),
-      download: `padron_reniec_completo_${new Date().toISOString().slice(0, 10)}.csv`,
+      download: `padron_personas_${new Date().toISOString().slice(0, 10)}.csv`,
     });
     a.click(); a.remove();
     toast('Reporte CSV con todos los campos descargado', 'success');
@@ -1807,7 +1849,7 @@
     const blob = new Blob([JSON.stringify(resultados, null, 2)], { type: 'application/json' });
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob),
-      download: `padron_reniec_completo_${new Date().toISOString().slice(0, 10)}.json`,
+      download: `padron_personas_${new Date().toISOString().slice(0, 10)}.json`,
     });
     a.click(); a.remove();
     toast('Datos completos exportados a JSON', 'success');
@@ -1840,14 +1882,14 @@
     try {
       let data;
       if (isDni) {
-        const res = await fetch(`${API_BASE}/persona/${encodeURIComponent(query.trim())}`, {
+        const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(query.trim())}`, {
           signal: qsAbort.signal, headers: apiHeaders(),
         });
         if (res.status === 404) data = [];
         else if (!res.ok) throw new Error();
         else data = [await res.json()];
       } else {
-        const res = await fetch(`${API_BASE}/buscar?q=${encodeURIComponent(query)}&limit=6`, {
+        const res = await apiFetch(`${API_BASE}/buscar?q=${encodeURIComponent(query)}&limit=6`, {
           signal: qsAbort.signal, headers: apiHeaders(),
         });
         if (!res.ok) throw new Error();
@@ -2000,30 +2042,33 @@
   function decrementConsultas() {
     if (_userRol === 'admin') return;
     _consultasRestantes = Math.max(0, _consultasRestantes - 1);
-    localStorage.setItem('consultas_restantes', String(_consultasRestantes));
     updateConsultasBadge();
   }
 
   async function refreshUserInfo() {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/me`, { headers: apiHeaders() });
+      const res = await apiFetch(`${API_BASE}/api/auth/me`, { headers: apiHeaders() });
       if (res.ok) {
         const data = await res.json();
-        _consultasRestantes = data.consultas_restantes;
-        _userRol = data.rol;
-        localStorage.setItem('consultas_restantes', String(_consultasRestantes));
-        localStorage.setItem('user_rol', data.rol);
+        applySession(data);
         updateConsultasBadge();
-      } else if (res.status === 401) {
+        return true;
+      }
+      if (res.status === 401) {
         showLoginScreen();
       }
-    } catch { /* silently ignore */ }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   function showLoginScreen() {
     clearAuth();
-    loginOverlay.classList.remove('hidden');
-    loginUser.focus();
+    if (adminOverlay) adminOverlay.classList.remove('show');
+    if (btnOpenAdmin) btnOpenAdmin.classList.add('hidden');
+    if (loginOverlay) loginOverlay.classList.remove('hidden');
+    if (loginUser) loginUser.focus();
   }
 
   function hideLoginScreen() {
@@ -2058,7 +2103,7 @@
     `;
 
     try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
+      const res = await apiFetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: loginUser.value.trim(), password: loginPass.value }),
@@ -2066,7 +2111,7 @@
 
       if (res.ok) {
         const data = await res.json();
-        saveAuth(data.token, data.username, data.rol, data.consultas_restantes);
+        applySession(data);
         hideLoginScreen();
         loginForm.reset();
         if (eyeIcon) eyeIcon.textContent = 'visibility';
@@ -2090,7 +2135,11 @@
   });
 
   // Logout
-  btnLogout.addEventListener('click', () => {
+  btnLogout.addEventListener('click', async () => {
+    try {
+      await apiFetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
+    } catch { /* la sesión local se limpia igualmente */ }
+    clearAuth();
     showLoginScreen();
   });
 
@@ -2110,7 +2159,7 @@
 
   async function loadAdminUsers() {
     try {
-      const res = await fetch(`${API_BASE}/api/admin/usuarios`, { headers: apiHeaders() });
+      const res = await apiFetch(`${API_BASE}/api/admin/usuarios`, { headers: apiHeaders() });
       if (!res.ok) return;
       const users = await res.json();
       adminTableBody.innerHTML = users.map(u => {
@@ -2120,24 +2169,26 @@
         const statusBadge = u.activo
           ? '<span class="badge-status badge-status--active">Activo</span>'
           : '<span class="badge-status badge-status--inactive">Inactivo</span>';
-        const restantes = Math.max(0, u.consultas_max - u.consultas_usadas);
+        const restantes = Math.max(0, Number(u.consultas_max) - Number(u.consultas_usadas));
         const isAdmin = u.rol === 'admin';
+        const id = Number(u.id);
+        const max = Number(u.consultas_max);
         return `<tr>
-          <td>${u.id}</td>
-          <td><strong>${u.username}</strong></td>
+          <td>${escHtml(id)}</td>
+          <td><strong>${escHtml(u.username)}</strong></td>
           <td>${rolBadge}</td>
-          <td class="consultas-cell">${u.consultas_usadas} / ${u.consultas_max} <small style="color:var(--text-5)">(${restantes} rest.)</small></td>
+          <td class="consultas-cell">${escHtml(u.consultas_usadas)} / ${escHtml(u.consultas_max)} <small style="color:var(--text-5)">(${escHtml(restantes)} rest.)</small></td>
           <td>${statusBadge}</td>
           <td>
             <div class="admin-actions-cell">
               ${!isAdmin ? `
-                <button class="btn-admin-action" title="Agregar 100 consultas" onclick="window._adminAddConsultas(${u.id}, ${u.consultas_max})">
+                <button class="btn-admin-action" data-admin-action="add" data-id="${escHtml(id)}" data-max="${escHtml(max)}" title="Agregar 100 consultas">
                   <span class="material-symbols-outlined">add_circle</span>
                 </button>
-                <button class="btn-admin-action" title="${u.activo ? 'Desactivar' : 'Activar'}" onclick="window._adminToggle(${u.id}, ${!u.activo})">
+                <button class="btn-admin-action" data-admin-action="toggle" data-id="${escHtml(id)}" data-active="${u.activo ? '1' : '0'}" title="${u.activo ? 'Desactivar' : 'Activar'}">
                   <span class="material-symbols-outlined">${u.activo ? 'block' : 'check_circle'}</span>
                 </button>
-                <button class="btn-admin-action btn-admin-action--danger" title="Eliminar" onclick="window._adminDelete(${u.id}, '${u.username}')">
+                <button class="btn-admin-action btn-admin-action--danger" data-admin-action="delete" data-id="${escHtml(id)}" data-username="${escHtml(u.username)}" title="Eliminar">
                   <span class="material-symbols-outlined">delete</span>
                 </button>
               ` : '<span style="color:var(--text-5);font-size:11px">—</span>'}
@@ -2145,41 +2196,56 @@
           </td>
         </tr>`;
       }).join('');
+
+      adminTableBody.querySelectorAll('[data-admin-action]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const action = btn.getAttribute('data-admin-action');
+          const id = parseInt(btn.getAttribute('data-id') || '', 10);
+          if (!Number.isInteger(id) || id <= 0) return;
+          if (action === 'add') {
+            const currentMax = parseInt(btn.getAttribute('data-max') || '0', 10);
+            adminAddConsultas(id, Number.isFinite(currentMax) ? currentMax : 0);
+          } else if (action === 'toggle') {
+            adminToggle(id, btn.getAttribute('data-active') !== '1');
+          } else if (action === 'delete') {
+            adminDelete(id, btn.getAttribute('data-username') || '');
+          }
+        });
+      });
     } catch {
       adminTableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red)">Error al cargar usuarios</td></tr>';
     }
   }
 
-  // Admin actions (global for onclick)
-  window._adminAddConsultas = async (id, currentMax) => {
-    const res = await fetch(`${API_BASE}/api/admin/usuarios/${id}`, {
+  async function adminAddConsultas(id, currentMax) {
+    const res = await apiFetch(`${API_BASE}/api/admin/usuarios/${id}`, {
       method: 'PUT',
       headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ consultas_max: currentMax + 100 }),
     });
     if (res.ok) { showAdminMsg('+100 consultas agregadas', true); loadAdminUsers(); }
     else showAdminMsg('Error al actualizar', false);
-  };
+  }
 
-  window._adminToggle = async (id, newState) => {
-    const res = await fetch(`${API_BASE}/api/admin/usuarios/${id}`, {
+  async function adminToggle(id, newState) {
+    const res = await apiFetch(`${API_BASE}/api/admin/usuarios/${id}`, {
       method: 'PUT',
       headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ activo: newState }),
     });
     if (res.ok) { showAdminMsg(newState ? 'Usuario activado' : 'Usuario desactivado', true); loadAdminUsers(); }
     else showAdminMsg('Error al actualizar', false);
-  };
+  }
 
-  window._adminDelete = async (id, username) => {
+  async function adminDelete(id, username) {
     if (!confirm(`¿Eliminar al usuario "${username}"?`)) return;
-    const res = await fetch(`${API_BASE}/api/admin/usuarios/${id}`, {
+    const res = await apiFetch(`${API_BASE}/api/admin/usuarios/${id}`, {
       method: 'DELETE',
       headers: apiHeaders(),
     });
     if (res.ok) { showAdminMsg(`Usuario "${username}" eliminado`, true); loadAdminUsers(); }
     else showAdminMsg('Error al eliminar', false);
-  };
+  }
 
   // Create user
   btnCrearUsuario.addEventListener('click', async () => {
@@ -2189,7 +2255,7 @@
 
     if (!username || !password) { showAdminMsg('Completa usuario y contraseña', false); return; }
 
-    const res = await fetch(`${API_BASE}/api/admin/usuarios`, {
+    const res = await apiFetch(`${API_BASE}/api/admin/usuarios`, {
       method: 'POST',
       headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, consultas_max: consultas }),
@@ -2207,45 +2273,42 @@
     }
   });
 
-  // Intercept 401 responses to show login
-  const _origFetch = window.fetch;
-  window.fetch = async function(...args) {
-    const res = await _origFetch.apply(this, args);
-    if (res.status === 401 && isLoggedIn()) {
-      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-      if (!url.includes('/api/auth/login')) {
-        showLoginScreen();
-      }
-    }
-    return res;
-  };
+  // La interceptación de 401 se centraliza en apiFetch.
 
   /* ── Boot ──────────────────────────────────────────────── */
-  if (isLoggedIn()) {
+  async function bootstrap() {
+    clearLegacyAuthStorage();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialQ = urlParams.get('q');
+    const initialMode = urlParams.get('mode');
+
+    if (initialMode === 'nombre' || initialMode === 'dni') {
+      setMode(initialMode);
+    } else {
+      setMode('dni');
+    }
+
+    checkConnection();
+    setInterval(checkConnection, 30000);
+
+    // La cookie HttpOnly es la única fuente de verdad de la sesión.
+    const autenticado = await refreshUserInfo();
+    if (!autenticado) {
+      showLoginScreen();
+      return;
+    }
+
     hideLoginScreen();
-    refreshUserInfo();
-  } else {
-    showLoginScreen();
+
+    if (initialQ) {
+      searchInput.value = initialQ;
+      btnClearSearch.classList.add('visible');
+      search();
+    } else {
+      searchInput.focus();
+    }
   }
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const initialQ = urlParams.get('q');
-  const initialMode = urlParams.get('mode');
-
-  if (initialMode === 'nombre' || initialMode === 'dni') {
-    setMode(initialMode);
-  } else {
-    setMode('dni');
-  }
-
-  checkConnection();
-  setInterval(checkConnection, 30000);
-
-  if (initialQ && isLoggedIn()) {
-    searchInput.value = initialQ;
-    btnClearSearch.classList.add('visible');
-    search();
-  } else if (isLoggedIn()) {
-    searchInput.focus();
-  }
+  bootstrap();
 })();
