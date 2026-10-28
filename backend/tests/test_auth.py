@@ -1,13 +1,8 @@
 import pytest
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.services import auth_service
+from tests.fakes import PERSONA_FILA, FakeEngine
 
-client = TestClient(app)
-
-
-# Mock user store for unit tests
 MOCK_USERS = {
     1: {
         "id": 1,
@@ -17,16 +12,18 @@ MOCK_USERS = {
         "consultas_max": 999999,
         "consultas_usadas": 0,
         "activo": True,
+        "token_version": 0,
         "created_at": "2026-08-24 10:00:00",
     },
     2: {
         "id": 2,
         "username": "testuser",
-        "password_hash": auth_service.hash_password("pass123"),
+        "password_hash": auth_service.hash_password("pass1234"),
         "rol": "user",
         "consultas_max": 50,
         "consultas_usadas": 0,
         "activo": True,
+        "token_version": 0,
         "created_at": "2026-08-24 10:00:00",
     },
 }
@@ -44,6 +41,17 @@ def mock_auth_db(monkeypatch):
     def fake_obtener_usuario_por_id(user_id):
         return MOCK_USERS.get(user_id)
 
+    def fake_validar_sesion(user_id, token_version):
+        u = MOCK_USERS.get(user_id)
+        if not u or not u["activo"] or u.get("token_version", 0) != token_version:
+            return None
+        return {
+            "sub": u["id"],
+            "username": u["username"],
+            "rol": u["rol"],
+            "ver": u.get("token_version", 0),
+        }
+
     def fake_obtener_usuarios():
         return list(MOCK_USERS.values())
 
@@ -59,6 +67,7 @@ def mock_auth_db(monkeypatch):
             "consultas_max": consultas_max,
             "consultas_usadas": 0,
             "activo": True,
+            "token_version": 0,
             "created_at": "2026-08-24 10:00:00",
         }
         MOCK_USERS[new_id] = new_user
@@ -72,8 +81,11 @@ def mock_auth_db(monkeypatch):
             u["consultas_max"] = consultas_max
         if activo is not None:
             u["activo"] = activo
+            if not activo:
+                u["token_version"] = u.get("token_version", 0) + 1
         if password is not None:
             u["password_hash"] = auth_service.hash_password(password)
+            u["token_version"] = u.get("token_version", 0) + 1
         return u
 
     def fake_eliminar_usuario(user_id):
@@ -83,62 +95,82 @@ def mock_auth_db(monkeypatch):
         del MOCK_USERS[user_id]
         return True
 
-    def fake_consultas_restantes(user_id):
-        u = MOCK_USERS.get(user_id)
-        if not u:
-            return 0
-        return max(0, u["consultas_max"] - u["consultas_usadas"])
-
-    def fake_descontar_consulta(user_id):
+    def fake_consumir_consulta(user_id, es_admin=False):
+        if es_admin:
+            return None
         u = MOCK_USERS.get(user_id)
         if not u or u["consultas_usadas"] >= u["consultas_max"]:
-            return False
+            return None
         u["consultas_usadas"] += 1
-        return True
+        return u["consultas_max"] - u["consultas_usadas"]
 
+    def fake_reembolsar_consulta(user_id):
+        u = MOCK_USERS.get(user_id)
+        if u:
+            u["consultas_usadas"] = max(0, u["consultas_usadas"] - 1)
+
+    monkeypatch.setattr(auth_service, "asegurar_admin", lambda: None)
     monkeypatch.setattr(auth_service, "verificar_credenciales", fake_verificar_credenciales)
     monkeypatch.setattr(auth_service, "obtener_usuario_por_id", fake_obtener_usuario_por_id)
+    monkeypatch.setattr(auth_service, "validar_sesion", fake_validar_sesion)
     monkeypatch.setattr(auth_service, "obtener_usuarios", fake_obtener_usuarios)
     monkeypatch.setattr(auth_service, "crear_usuario", fake_crear_usuario)
     monkeypatch.setattr(auth_service, "actualizar_usuario", fake_actualizar_usuario)
     monkeypatch.setattr(auth_service, "eliminar_usuario", fake_eliminar_usuario)
-    monkeypatch.setattr(auth_service, "consultas_restantes", fake_consultas_restantes)
-    monkeypatch.setattr(auth_service, "descontar_consulta", fake_descontar_consulta)
+    monkeypatch.setattr(auth_service, "consumir_consulta", fake_consumir_consulta)
+    monkeypatch.setattr(auth_service, "reembolsar_consulta", fake_reembolsar_consulta)
 
 
-def test_login_exitoso():
-    response = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+def _login(client, username="admin", password="admin123"):
+    return client.post("/api/auth/login", json={"username": username, "password": password})
+
+
+def test_login_exitoso_guarda_cookie(client):
+    response = _login(client)
     assert response.status_code == 200
     data = response.json()
-    assert "token" in data
+    assert data["token"]
     assert data["username"] == "admin"
     assert data["rol"] == "admin"
 
+    cookie = response.headers.get("set-cookie", "")
+    assert "bp_access=" in cookie
+    assert "HttpOnly" in cookie
 
-def test_login_fallido():
-    response = client.post("/api/auth/login", json={"username": "admin", "password": "wrongpassword"})
+
+def test_login_fallido(client):
+    response = _login(client, password="wrongpassword")
     assert response.status_code == 401
     assert "incorrectos" in response.json()["detail"]
 
 
-def test_me_endpoint():
-    login_res = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+def test_me_endpoint_cookie_y_bearer(client):
+    login_res = _login(client)
     token = login_res.json()["token"]
+
+    # La cookie se guarda automáticamente en el cliente.
+    response = client.get("/api/auth/me")
+    assert response.status_code == 200
+    assert response.json()["username"] == "admin"
 
     response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
-    data = response.json()
-    assert data["username"] == "admin"
-    assert data["rol"] == "admin"
+    assert response.json()["rol"] == "admin"
 
 
-def test_admin_crud_usuarios():
-    # Login as admin
-    login_res = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
-    admin_token = login_res.json()["token"]
-    headers = {"Authorization": f"Bearer {admin_token}"}
+def test_logout_elimina_cookie(client):
+    _login(client)
+    assert client.get("/api/auth/me").status_code == 200
 
-    # 1. Crear nuevo usuario de prueba
+    res = client.post("/api/auth/logout")
+    assert res.status_code == 204
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_admin_crud_usuarios(client):
+    login_res = _login(client)
+    headers = {"Authorization": f"Bearer {login_res.json()['token']}"}
+
     create_res = client.post(
         "/api/admin/usuarios",
         headers=headers,
@@ -150,12 +182,10 @@ def test_admin_crud_usuarios():
     assert user_data["username"] == "nuevo_usuario"
     assert user_data["consultas_max"] == 50
 
-    # 2. Listar usuarios
     list_res = client.get("/api/admin/usuarios", headers=headers)
     assert list_res.status_code == 200
     assert any(u["username"] == "nuevo_usuario" for u in list_res.json())
 
-    # 3. Actualizar consultas del usuario
     update_res = client.put(
         f"/api/admin/usuarios/{user_id}",
         headers=headers,
@@ -164,14 +194,21 @@ def test_admin_crud_usuarios():
     assert update_res.status_code == 200
     assert update_res.json()["consultas_max"] == 150
 
-    # 4. Eliminar usuario de prueba
     del_res = client.delete(f"/api/admin/usuarios/{user_id}", headers=headers)
     assert del_res.status_code == 204
 
 
-def test_usuario_sin_consultas():
-    # Create zero-query user
-    token = auth_service.crear_token(99, "user_zero", "user")
+def test_admin_no_puede_desactivarse(client):
+    login_res = _login(client)
+    headers = {"Authorization": f"Bearer {login_res.json()['token']}"}
+
+    res = client.put("/api/admin/usuarios/1", headers=headers, json={"activo": False})
+    assert res.status_code == 400
+
+
+def test_usuario_sin_consultas(client, monkeypatch):
+    from app.services import persona_service
+
     MOCK_USERS[99] = {
         "id": 99,
         "username": "user_zero",
@@ -180,9 +217,28 @@ def test_usuario_sin_consultas():
         "consultas_max": 0,
         "consultas_usadas": 0,
         "activo": True,
+        "token_version": 0,
         "created_at": "2026-08-24",
     }
+    token = auth_service.crear_token(99, "user_zero", "user")
+    monkeypatch.setattr(persona_service, "engine", FakeEngine([PERSONA_FILA]))
 
     search_res = client.get("/persona/12345678", headers={"Authorization": f"Bearer {token}"})
     assert search_res.status_code == 403
     assert "Sin consultas disponibles" in search_res.json()["detail"]
+
+
+def test_consulta_exitosa_descuenta_y_404_reembolsa(client, monkeypatch):
+    from app.services import persona_service
+
+    token = auth_service.crear_token(2, "testuser", "user")
+    headers = {"Authorization": f"Bearer {token}"}
+    monkeypatch.setattr(persona_service, "engine", FakeEngine([PERSONA_FILA]))
+
+    assert client.get("/persona/12345678", headers=headers).status_code == 200
+    assert MOCK_USERS[2]["consultas_usadas"] == 1
+
+    # Un DNI inexistente no debe consumir la cuota.
+    monkeypatch.setattr(persona_service, "engine", FakeEngine([]))
+    assert client.get("/persona/99999999", headers=headers).status_code == 404
+    assert MOCK_USERS[2]["consultas_usadas"] == 1

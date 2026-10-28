@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import base64
-import hashlib
 import hmac
-import time
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 
-from app.config import API_KEYS, FRONTEND_TOKEN_SECRET, FRONTEND_TOKEN_TTL
+from app.config import (
+    ALLOW_OPEN_ACCESS,
+    API_KEYS,
+    COOKIE_SAMESITE,
+    COOKIE_SECURE,
+    JWT_COOKIE_NAME,
+    JWT_EXPIRATION_HOURS,
+)
 from app.services import auth_service
 
 
@@ -20,81 +24,70 @@ def _constant_time_in(key: str, valid_keys: list[str]) -> bool:
     return result
 
 
-def create_frontend_token() -> tuple[str, int]:
-    """Genera un token HMAC temporal para el frontend."""
-    ts = str(int(time.time()))
-    exp = str(int(time.time()) + FRONTEND_TOKEN_TTL)
-    payload = f"{ts}.{exp}"
-    sig = hmac.new(
-        FRONTEND_TOKEN_SECRET.encode(), payload.encode(), hashlib.sha256
-    ).hexdigest()
-    token = base64.urlsafe_b64encode(f"{payload}.{sig}".encode()).decode()
-    return token, FRONTEND_TOKEN_TTL
-
-
-def _verify_frontend_token(token: str) -> bool:
-    """Valida un token HMAC de sesión frontend."""
-    if not FRONTEND_TOKEN_SECRET:
-        return False
-    try:
-        decoded = base64.urlsafe_b64decode(token.encode()).decode()
-        parts = decoded.rsplit(".", 2)
-        if len(parts) != 3:
-            return False
-        ts, exp, sig = parts
-        if time.time() > int(exp):
-            return False
-        payload = f"{ts}.{exp}"
-        expected = hmac.new(
-            FRONTEND_TOKEN_SECRET.encode(), payload.encode(), hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(sig, expected)
-    except Exception:
-        return False
-
-
-def _extract_jwt_payload(request: Request) -> dict | None:
-    """Extrae y valida el JWT del header Authorization. Retorna payload o None."""
+def _extract_tokens(request: Request) -> list[str]:
+    """Devuelve los tokens candidatos: cookie HttpOnly y/o Bearer."""
+    tokens: list[str] = []
+    cookie = request.cookies.get(JWT_COOKIE_NAME)
+    if cookie:
+        tokens.append(cookie)
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return None
-    token = auth[7:]
-    return auth_service.verificar_token(token)
+    if auth.startswith("Bearer "):
+        bearer = auth[7:].strip()
+        if bearer and bearer not in tokens:
+            tokens.append(bearer)
+    return tokens
 
 
 def require_jwt_auth(request: Request) -> dict:
-    """Exige autenticación JWT. Retorna el payload del token con user_id y rol.
+    """Exige autenticación por JWT (cookie o Bearer) o API key.
 
-    Acepta:
-    - Header Authorization: Bearer <jwt_token>
-    - Header Authorization: Bearer <frontend_token> (devuelve payload admin)
-    - Header X-API-Key válido (devuelve payload admin)
-    - En entorno de desarrollo (sin API_KEYS ni FRONTEND_TOKEN_SECRET y sin auth headers) devuelve payload admin
+    - JWT de usuario: devuelve el payload con ``sub``, ``rol`` y ``ver``.
+    - API key: devuelve un principal de solo lectura de datos (nunca admin).
+    - Modo abierto: solo si ``ALLOW_OPEN_ACCESS`` está activo (desarrollo/test).
     """
-    # 1) JWT Token estándar
-    payload = _extract_jwt_payload(request)
-    if payload:
-        return payload
+    for token in _extract_tokens(request):
+        payload = auth_service.verificar_token(token)
+        if not payload:
+            continue
 
-    # 2) Token de frontend clásico
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth[7:]
-        if FRONTEND_TOKEN_SECRET and _verify_frontend_token(token):
-            return {"sub": 1, "username": "frontend_session", "rol": "admin"}
+        user_id = payload.get("sub")
+        token_version = int(payload.get("ver") or 0)
+        if not isinstance(user_id, int):
+            continue
 
-    # 3) API Key clásica
+        valid = auth_service.validar_sesion(user_id, token_version)
+        if valid:
+            return valid
+
+        raise HTTPException(
+            status_code=401,
+            detail="Sesión expirada o revocada. Inicia sesión nuevamente.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     api_key = request.headers.get("X-API-Key", "")
     if api_key and API_KEYS and _constant_time_in(api_key, API_KEYS):
-        return {"sub": 1, "username": "api_key_client", "rol": "admin"}
+        # Una API key no debe poder administrar usuarios ni cambiar datos.
+        return {
+            "sub": 0,
+            "username": "api_key_client",
+            "rol": "user",
+            "ver": 0,
+            "scopes": ["data:read"],
+        }
 
-    # 4) Acceso abierto en tests / desarrollo si no hay API_KEYS ni FRONTEND_TOKEN_SECRET configurados
-    if not API_KEYS and not FRONTEND_TOKEN_SECRET:
-        return {"sub": 1, "username": "dev_user", "rol": "admin"}
+    if ALLOW_OPEN_ACCESS and not API_KEYS:
+        return {
+            "sub": 0,
+            "username": "dev_user",
+            "rol": "user",
+            "ver": 0,
+            "scopes": ["data:read"],
+        }
 
     raise HTTPException(
         status_code=401,
-        detail="Sesión expirada o no válida. Inicia sesión nuevamente.",
+        detail="Autenticación requerida. Inicia sesión o envía X-API-Key.",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -103,40 +96,36 @@ def require_admin(request: Request) -> dict:
     """Exige autenticación JWT con rol admin."""
     payload = require_jwt_auth(request)
     if payload.get("rol") != "admin":
-        raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere rol de administrador.")
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. Se requiere rol de administrador.",
+        )
     return payload
 
 
 def require_api_key(request: Request) -> None:
-    """Exige autenticación en todos los endpoints de datos.
+    """Alias histórico: exige autenticación de datos (JWT o API key)."""
+    require_jwt_auth(request)
 
-    Acepta:
-    - Header ``X-API-Key`` con una clave válida (consumidores externos).
-    - Header ``Authorization: Bearer <token>`` con un token de sesión
-      generado por ``/api/frontend-token``.
 
-    Si API_KEYS está vacío y FRONTEND_TOKEN_SECRET está vacío (entorno de
-    desarrollo), el acceso queda abierto.
-    """
-    if not API_KEYS and not FRONTEND_TOKEN_SECRET:
-        return
+def set_auth_cookie(response: Response, token: str) -> None:
+    """Guarda el JWT en una cookie HttpOnly y SameSite=Strict."""
+    response.set_cookie(
+        key=JWT_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=JWT_EXPIRATION_HOURS * 3600,
+        path="/",
+    )
 
-    # 1) API key clásica
-    api_key = request.headers.get("X-API-Key", "")
-    if api_key and API_KEYS and _constant_time_in(api_key, API_KEYS):
-        return
 
-    # 2) Token de sesión frontend o JWT
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth[7:]
-        if FRONTEND_TOKEN_SECRET and _verify_frontend_token(token):
-            return
-        if auth_service.verificar_token(token):
-            return
-
-    raise HTTPException(
-        status_code=401,
-        detail="Autenticación requerida. Envía X-API-Key o un token de sesión válido.",
-        headers={"WWW-Authenticate": "API-Key"},
+def clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=JWT_COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
     )

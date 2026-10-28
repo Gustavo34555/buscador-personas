@@ -1,4 +1,4 @@
-const CACHE_NAME = 'buscador-personas-v1';
+const CACHE_NAME = 'buscador-personas-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

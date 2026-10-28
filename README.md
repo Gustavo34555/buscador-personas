@@ -1,82 +1,129 @@
 # Buscador de Personas
 
-Plataforma de alto rendimiento para la consulta, búsqueda y verificación de personas y registros tributarios, diseñada con arquitectura asíncrona, indexación ponderada en memoria y diseño web minimalista.
+Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con API FastAPI, autenticación por cookie HttpOnly, búsqueda familiar con niveles de confianza y frontend estático sin dependencias.
+
+> **Aviso:** la ficha C4 que genera este proyecto es un **documento de referencia no oficial**. No es un certificado de RENIEC y no tiene validez legal.
 
 ---
 
-## Caracteristicas Principales
+## Características principales
 
-- **Motor de Busqueda Sub-15ms**: Algoritmo ponderado en PostgreSQL con pesos A/B/C (ap_pat > nombres > ap_mat), trigramas GIN y soporte fonetico (fuzzystrmatch).
-- **Ficha Digital 3D**: Visualizacion interactiva tipo tarjeta inteligente con codigo de seguridad MRZ, avatar de genero y cronologia de vigencia.
-- **Arbol y Busqueda Familiar**: Navegacion en un clic hacia la ficha de los familiares de cualquier persona.
-- **Consulta de RUC en Tiempo Real**: Modulo de consulta tributaria con estado en vivo (Activo/Habido), condicion y domicilio fiscal.
-- **Seguridad y Resiliencia**: Tokens de sesion temporales HMAC, rate limiting en memoria, proteccion contra timing attacks y headers de seguridad HTTP.
-- **Exportacion de Datos**: Descarga de resultados en formatos estructurados CSV (Excel) y JSON, ademas de vista optimizada para impresion A4.
-- **PWA y Offline Shell**: Aplicacion web progresiva instalable en escritorio y dispositivos moviles con Service Worker y soporte para atajos de teclado (Ctrl+K, flechas arriba/abajo).
+- **Búsqueda indexada**: PostgreSQL con `pg_trgm`, `unaccent`, `search_vector` ponderado e índices normalizados para apellidos y nombres.
+- **Búsqueda familiar precisa**: padre, madre, abuelos, hermanos e hijos con puntuación de evidencia, nivel de confianza (`alta`/`media`/`baja`), alternativas y advertencias cuando no hay certeza suficiente.
+- **Hermanos completos y medios hermanos**: distingue `hermano_completo`, `medio_hermano_paterno` y `medio_hermano_materno` según los campos de filiación.
+- **Autenticación segura**: JWT en cookie `HttpOnly` + `SameSite=Strict`, con fallback `Bearer` para clientes API. El frontend nunca guarda el token en `localStorage`.
+- **API keys de solo lectura**: las integraciones con `X-API-Key` no pueden acceder a endpoints de administración.
+- **Cuotas atómicas**: descuento y reembolso de consultas ante errores o resultados no encontrados.
+- **Caché opcional con Redis**: si no hay `REDIS_URL`, se usa caché en memoria.
+- **Ficha C4 de referencia**: claramente etiquetada como no oficial, sin logotipos ni leyendas de RENIEC.
+- **Exportación CSV/JSON** con protección contra inyección de fórmulas.
+- **PWA** con Service Worker y atajos de teclado.
 
 ---
 
-## Stack Tecnologico
+## Stack tecnológico
 
-| Capa | Tecnologias |
+| Capa | Tecnologías |
 |---|---|
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0, Pydantic v2, HTTPX |
-| **Base de Datos** | PostgreSQL 16 (pg_trgm, unaccent, fuzzystrmatch, B-Tree Covering Indexes) |
-| **Frontend** | HTML5 Semantico, Vanilla CSS3 (Custom Design System, Dark Mode), JavaScript ES6+ Moderno |
-| **Infraestructura** | Docker, Docker Compose, Nginx, GitHub Actions CI/CD |
+| **Base de datos** | PostgreSQL 16 (`pg_trgm`, `unaccent`, `fuzzystrmatch`, GIN y B-Tree) |
+| **Frontend** | HTML5, CSS3, JavaScript ES6+ sin frameworks |
+| **Infraestructura** | Docker, Docker Compose, Nginx, GitHub Actions |
 
 ---
 
 ## Despliegue con Docker
 
-Para levantar el entorno completo (Base de Datos + Backend API + Frontend Web):
+El compose de producción **no publica** los puertos de PostgreSQL ni del backend. Solo Nginx queda expuesto.
 
 ```bash
 # 1. Clonar el repositorio
 git clone https://github.com/Gustavo34555/buscador-personas.git
 cd buscador-personas
 
-# 2. Configurar variables de entorno
-cp backend/.env.example backend/.env
+# 2. Crear el archivo .env de la raíz a partir del ejemplo de Docker
+cp .env.example .env
+```
 
-# 3. Iniciar todos los servicios
+Edita `.env` y como mínimo define:
+
+```dotenv
+APP_ENV=production
+POSTGRES_DB=buscador_personas
+POSTGRES_USER=buscador
+POSTGRES_PASSWORD=una_password_larga_y_unica
+DATABASE_URL=postgresql+psycopg2://buscador:una_password_larga_y_unica@db:5432/buscador_personas
+JWT_SECRET=un_secreto_de_al_menos_32_caracteres
+ADMIN_PASSWORD=una_password_de_administrador_distinta
+ALLOW_OPEN_ACCESS=false
+COOKIE_SECURE=false   # cámbialo a true cuando sirvas por HTTPS
+FRONTEND_PORT=8080
+```
+
+Genera el secreto JWT con:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Levanta los servicios:
+
+```bash
 docker compose up -d --build
 ```
 
-- **Frontend Web**: http://localhost
-- **API Backend**: http://localhost:8000
-- **Documentacion Swagger / OpenAPI**: http://localhost:8000/docs
+- **Frontend**: http://localhost:8080
+- **API**: solo accesible a través de Nginx en `/persona`, `/buscar`, `/scraping`, `/api`, `/docs`.
+- **PostgreSQL**: sin puerto publicado.
+
+Para producción real, coloca Nginx detrás de HTTPS (por ejemplo con Caddy, Traefik o un certificado gestionado) y activa `COOKIE_SECURE=true`.
+
+### Volumen de base de datos existente
+
+`docker/initdb.sql` solo se ejecuta al crear un volumen nuevo. Para una base existente aplica las migraciones:
+
+```bash
+# 001 crea usuarios, token_version y la función de búsqueda.
+# psql no entiende el prefijo "+psycopg2" del DATABASE_URL de SQLAlchemy.
+psql "${DATABASE_URL/postgresql+psycopg2/postgresql}" \
+  -f backend/migrations/001_auth_y_esquema.sql
+
+# 002 crea índices normalizados de forma concurrente.
+# Debe ejecutarlo el propietario de la tabla o un superusuario.
+psql -U postgres -d buscador_personas \
+  -f backend/migrations/002_indices_concurrentes.sql
+```
+
+> **Importante:** si la tabla `personas` pertenece a `postgres`, el usuario de la aplicación (por ejemplo `buscador` en Docker) no puede crear índices sobre ella. Ejecuta la migración 002 como `postgres` o pide al propietario que la aplique. La aplicación funciona sin esos índices, pero la búsqueda familiar y por apellidos será más lenta.
 
 ---
 
-## Desarrollo Local
+## Desarrollo local
 
 ### Requisitos
+
 - Python 3.12+
-- PostgreSQL 15+ con extensiones pg_trgm, unaccent, fuzzystrmatch
+- PostgreSQL 15+ con `pg_trgm`, `unaccent` y `fuzzystrmatch`
 
 ```bash
-# Entrar al backend y crear entorno virtual
 cd backend
 python3 -m venv venv
 source venv/bin/activate
-
-# Instalar dependencias
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Configurar variables
 cp .env.example .env
+# Edita .env: DATABASE_URL local, JWT_SECRET y ADMIN_PASSWORD
 
-# Ejecutar servidor de desarrollo
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Ejecutar Pruebas y Linteo
-```bash
-# Correr suite de tests automatizados (34 tests)
-pytest
+El frontend puede servirse con Nginx o con cualquier servidor estático apuntando a `frontend/`. La API debe quedar en el mismo origen que el frontend; el `docker/nginx.conf` ya hace el proxy.
 
-# Analisis estatico de codigo con Ruff
+### Pruebas y linteo
+
+```bash
+cd backend
+pytest -q          # 58 pruebas
 ruff check .
 ```
 
@@ -84,25 +131,41 @@ ruff check .
 
 ## Endpoints de la API
 
-| Metodo | Endpoint | Descripcion |
+| Método | Endpoint | Descripción |
 |---|---|---|
-| GET | `/persona/{dni}` | Consulta detallada de una persona por numero de documento (8 digitos) |
-| GET | `/buscar?q={texto}&limit=20` | Busqueda difusa ponderada por nombres o apellidos |
-| GET | `/scraping/ruc/{dni}` | Consulta del estado y datos de RUC tributario |
-| GET | `/api/frontend-token` | Emision de token HMAC temporal para clientes autorizados |
-| GET | `/api/status` | Healthcheck activo con ping a PostgreSQL |
+| POST | `/api/auth/login` | Login; guarda el JWT en cookie HttpOnly |
+| POST | `/api/auth/logout` | Elimina la cookie de sesión |
+| GET | `/api/auth/me` | Datos y cuota del usuario autenticado |
+| GET | `/api/admin/usuarios` | Listado de usuarios (solo admin) |
+| POST | `/api/admin/usuarios` | Crear usuario (solo admin) |
+| PUT | `/api/admin/usuarios/{id}` | Actualizar cuota, estado o contraseña (solo admin) |
+| DELETE | `/api/admin/usuarios/{id}` | Eliminar usuario (solo admin) |
+| GET | `/persona/{dni}` | Consulta una persona por DNI |
+| GET | `/buscar?q={texto}&limit=20` | Búsqueda ponderada por nombres o apellidos |
+| GET | `/persona/{dni}/arbol?limite=200` | Árbol familiar con confianza, evidencia y alternativas (máximo 200 por relación) |
+| GET | `/persona/{dni}/c4` | Ficha de referencia no oficial |
+| GET | `/scraping/ruc/{dni}` | Consulta de RUC en SUNAT |
+| GET | `/api/status` | Healthcheck con ping a PostgreSQL |
+
+La API acepta autenticación por cookie (`bp_access`), por `Authorization: Bearer <token>` o por `X-API-Key` para integraciones de solo lectura. El modo abierto sin credenciales solo funciona con `ALLOW_OPEN_ACCESS=true` y sin `API_KEYS` configuradas.
 
 ---
 
-## Contacto y Licenciamiento
+## Seguridad
 
-Para implementaciones personalizadas, adquisicion del sistema, integraciones empresariales o soporte tecnico:
+- Secretos obligatorios y validados al arrancar en `APP_ENV=production`.
+- Contraseñas con bcrypt y límite de 72 bytes.
+- Rate limiting separado para login, búsqueda y RUC.
+- Cookies `HttpOnly`, `SameSite=Strict` y `Secure` cuando se sirve por HTTPS.
+- API keys sin rol de administrador.
+- Consultas SQL parametrizadas y errores internos sin trazas expuestas.
+- CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` y HSTS (con HTTPS).
+
+---
+
+## Contacto y licenciamiento
 
 - **Desarrollador / Autor**: [Gustavo34555](https://github.com/Gustavo34555)
 - **Repositorio**: https://github.com/Gustavo34555/buscador-personas
 
----
-
-## Licencia
-
-Este proyecto esta bajo los terminos y condiciones de uso privado y licenciamiento de software. Consulte con el autor para acuerdos comerciales o despliegues en produccion.
+Este proyecto está bajo términos y condiciones de uso privado y licenciamiento de software. Consulta con el autor para acuerdos comerciales o despliegues en producción.

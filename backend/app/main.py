@@ -7,15 +7,16 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.config import ALLOWED_ORIGINS, FRONTEND_TOKEN_SECRET, RUC_API_KEY
+from app.config import ALLOWED_ORIGINS, COOKIE_SECURE, RUC_API_KEY
 from app.db import engine
 from app.routers import admin, auth, persona, ruc
-from app.schemas import FrontendTokenResponse, StatusResponse
-from app.security import create_frontend_token
+from app.schemas import StatusResponse
+from app.services import auth_service
 from app.services.ruc_service import RucService
 
 # Configurar logging estructurado básico
@@ -30,6 +31,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.ruc_service = RucService(api_key=RUC_API_KEY)
+    try:
+        await asyncio.to_thread(auth_service.asegurar_admin)
+    except Exception:
+        logger.exception("No se pudo verificar el administrador inicial")
     yield
     await app.state.ruc_service.close()
 
@@ -53,6 +58,14 @@ async def security_and_tracing_middleware(request: Request, call_next) -> Respon
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "script-src 'self' 'unsafe-inline'; connect-src 'self'"
+    )
+    if COOKIE_SECURE:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
     # Log estructurado con correlation id y duración
     if not request.url.path.startswith("/static"):
@@ -72,14 +85,25 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["Retry-After", "X-Request-ID"],
 )
 
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(persona.router)
 app.include_router(ruc.router)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Evita exponer trazas internas y registra el error con su Request-ID."""
+    logger.exception("Error no controlado en %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Error interno del servidor"},
+    )
 
 
 @app.get("/api/status", response_model=StatusResponse)
@@ -99,23 +123,8 @@ async def status():
             detail="Servicio no disponible: fallo en conexión a la base de datos",
         ) from exc
 
-
-@app.get("/api/frontend-token", response_model=FrontendTokenResponse)
-def frontend_token():
-    """Genera un token de sesión temporal para el frontend.
-
-    No requiere autenticación. El token es HMAC-firmado con un secreto
-    del servidor y expira según FRONTEND_TOKEN_TTL (default 1 hora).
-    """
-    if not FRONTEND_TOKEN_SECRET:
-        return FrontendTokenResponse(token="", expires_in=0)
-    token, ttl = create_frontend_token()
-    return FrontendTokenResponse(token=token, expires_in=ttl)
-
-
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 if FRONTEND_DIR.is_dir():
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 else:
     logger.warning("No se encontró el directorio frontend en %s", FRONTEND_DIR)
-

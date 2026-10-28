@@ -121,7 +121,9 @@ def test_arbol_dni_invalido(client):
 
 
 def test_arbol_persona_encontrada(client, monkeypatch):
-    _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
+    from app.services import familia_service
+
+    monkeypatch.setattr(familia_service, "engine", FakeEngine([PERSONA_FILA]))
     res = client.get("/persona/12345678/arbol")
     assert res.status_code == 200
     body = res.json()
@@ -129,6 +131,7 @@ def test_arbol_persona_encontrada(client, monkeypatch):
     assert body["persona"]["dni"] == "12345678"
     assert "hijos" in body
     assert "hermanos" in body
+    assert "meta" in body
 
 
 def test_c4_dni_invalido(client):
@@ -141,11 +144,13 @@ def test_c4_persona_encontrada(client, monkeypatch):
     res = client.get("/persona/12345678/c4")
     assert res.status_code == 200
     body = res.json()
-    assert "codigo_certificado" in body
-    assert "codigo_verificacion" in body
-    assert "mrz_linea1" in body
-    assert "mrz_linea2" in body
-    assert "digito_verificador" in body
+    assert body["codigo_referencia"].startswith("REF-")
+    assert body["fecha_generacion"]
+    assert body["es_oficial"] is False
+    assert body["aviso"]
+    assert "mrz_linea1" not in body
+    assert "firma_digital" not in body
+    assert "url_verificacion" not in body
     assert body["persona"]["dni"] == "12345678"
 
 

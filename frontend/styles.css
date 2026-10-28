@@ -1809,6 +1809,44 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
 .tree-stat-chip strong {
   color: #f8fafc;
 }
+.tree-stat-chip--probable {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* Hermanos probables: se muestran aparte y colapsados para no mezclarlos
+   con las relaciones sustentadas por evidencia suficiente. */
+.tree-probables {
+  width: 100%;
+  margin-top: 12px;
+}
+.tree-probables summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fbbf24;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  list-style: none;
+}
+.tree-probables summary::-webkit-details-marker { display: none; }
+.tree-probables[open] summary { margin-bottom: 10px; }
+.tree-siblings-row--probables {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+}
+.tree-node--probable {
+  opacity: 0.78;
+  border-style: dashed;
+}
+.tree-node--probable:hover { opacity: 1; }
 
 /* Zoom / Pan Controls */
 .tree-panel__actions {
@@ -2137,6 +2175,68 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   line-height: 1.2;
 }
 
+/* ── Confianza y alternativas del árbol ─────────────────────────── */
+.tree-node__confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 8.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+  cursor: help;
+}
+.tree-node__confidence-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor;
+}
+.tree-node__confidence--alta {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.tree-node__confidence--media {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.tree-node__confidence--baja {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.tree-node__candidates {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+  font-size: 8.5px;
+  color: var(--text-5);
+  cursor: help;
+}
+.tree-warnings {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.tree-warnings ul {
+  margin: 0; padding-left: 14px;
+}
+.tree-warnings li + li { margin-top: 2px; }
+
 /* ── Generation Labels ───────────────────────────────────────────── */
 .tree-gen-label {
   font-size: 9px; font-weight: 700;
@@ -2189,10 +2289,10 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   21. FICHA OFICIAL RENIEC — SERVICIO DE CONSULTAS EN LÍNEA
+   21. FICHA DE REFERENCIA C4 — DOCUMENTO NO OFICIAL
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* ── C4 / Ficha RENIEC Modal Overlay ─────────────────────────────────── */
+/* ── C4 / Ficha de referencia Modal Overlay ──────────────────────────── */
 .c4-overlay {
   position: fixed; inset: 0; z-index: 9999;
   display: flex; align-items: center; justify-content: center;
@@ -2322,7 +2422,21 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   gap: 16px; padding: 80px 20px; color: var(--text-3);
 }
 
-/* ── Authentic RENIEC Official Blue Sheet (Consultas en Línea) ──────── */
+/* ── Hoja de referencia con estilo de ficha (no oficial) ─────────────── */
+.c4-disclaimer {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(251, 191, 36, 0.14);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: #fde68a;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: left;
+}
 .c4-document {
   width: 100%;
   max-width: 820px;
@@ -2428,7 +2542,7 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
 }
 .reniec-value {
   font-weight: 800;
-  color: #fde047; /* Yellow from official RENIEC sheet */
+  color: #fde047; /* Amarillo de la ficha de referencia */
   text-transform: uppercase;
   letter-spacing: 0.3px;
   word-break: break-word;
@@ -2507,7 +2621,7 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   letter-spacing: 0.4px;
 }
 
-/* ── Mobile Responsive for RENIEC Official Blue Sheet ────────────────── */
+/* ── Responsive de la ficha de referencia ────────────────────────────── */
 @media (max-width: 768px) {
   .c4-panel {
     width: 100vw;
