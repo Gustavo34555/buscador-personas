@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Buscador de Personas">
+  <rect width="512" height="512" rx="112" fill="#070709"/>
+  <circle cx="220" cy="202" r="92" fill="none" stroke="#818cf8" stroke-width="28"/>
+  <path d="M84 424c0-75 61-136 136-136s136 61 136 136" fill="none" stroke="#818cf8" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="354" cy="354" r="58" fill="#070709" stroke="#38bdf8" stroke-width="22"/>
+  <line x1="396" y1="396" x2="450" y2="450" stroke="#38bdf8" stroke-width="24" stroke-linecap="round"/>
+</svg>

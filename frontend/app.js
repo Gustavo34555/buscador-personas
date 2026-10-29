@@ -60,10 +60,16 @@
   const limiteSelect      = $('limite');
   const resultsSection    = $('results-section');
   const resultsList       = $('results-list');
+  const resultsGrid       = $('results-grid');
   const badgeCount        = $('badge-count');
   const estadoTexto       = $('estado-texto');
   const btnExportar       = $('btn-exportar');
   const btnExportarJson   = $('btn-exportar-json');
+  const btnViewList       = $('btn-view-list');
+  const btnViewTable      = $('btn-view-table');
+  const btnToggleDetail   = $('btn-toggle-detail');
+  const detailPanel       = $('detail-panel');
+  const detailResizer     = $('detail-resizer');
   const detailEmpty       = $('detail-empty');
   const detailContent     = $('detail-content');
   const emptyState        = $('empty-state');
@@ -86,6 +92,8 @@
   const btnTreeZoomOut     = $('btn-tree-zoom-out');
   const btnTreeReset       = $('btn-tree-reset');
   const btnTreeDownload    = $('btn-tree-download');
+  const btnTreeViewGraph   = $('btn-tree-view-graph');
+  const btnTreeViewList    = $('btn-tree-view-list');
   const c4Modal            = $('c4-modal');
   const c4Container        = $('c4-container');
   const btnCloseC4         = $('btn-close-c4');
@@ -140,6 +148,87 @@
   let initialPinchDist = null;
   let initialPinchZoom = 1.0;
 
+  // Resultados: vista, orden y panel de detalle
+  let resultadosVista = [];
+  let resultsSort = { key: '', dir: 1 };
+  let resultsView = 'list';
+  let detailCollapsed = false;
+  let detailWidth = 430;
+  let detailRenderToken = 0;
+  let swRefreshing = false;
+
+  // Árbol: caché, render progresivo y vista lista
+  const TREE_CACHE_TTL = 5 * 60 * 1000;
+  const treeCache = new Map();
+  let treeData = null;
+  let treeRootDni = null;
+  let treeView = window.innerWidth <= 768 ? 'list' : 'graph';
+  let treeListTab = 'padres';
+  let treeNeedsFit = false;
+  let treeVisible = { hermanos: 12, hijos: 12, probables: 8, hijosProbables: 8 };
+  let treeRequestToken = 0;
+  let lastFocusedElement = null;
+  let lastFocusedC4 = null;
+  let lastFocusedQS = null;
+
+  function updateBodyScrollLock() {
+    const anyOpen = [treeModal, c4Modal, qsModal, mobileSheet]
+      .some((el) => el && el.classList.contains('open'));
+    document.body.style.overflow = anyOpen ? 'hidden' : '';
+  }
+
+  try {
+    const savedView = localStorage.getItem('results_view');
+    if (savedView === 'table' || savedView === 'list') resultsView = savedView;
+    const savedDetail = localStorage.getItem('detail_collapsed');
+    if (savedDetail === '1') detailCollapsed = true;
+    const savedWidth = parseInt(localStorage.getItem('detail_width') || '', 10);
+    if (Number.isFinite(savedWidth)) detailWidth = Math.min(640, Math.max(320, savedWidth));
+    const savedTreeView = localStorage.getItem('tree_view');
+    if (savedTreeView === 'list' || savedTreeView === 'graph') treeView = savedTreeView;
+  } catch { /* almacenamiento no disponible */ }
+
+  function prefersReducedMotion() {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function isTypingTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName ? target.tagName.toLowerCase() : '';
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+  }
+
+  function scrollBehavior() {
+    return prefersReducedMotion() ? 'auto' : 'smooth';
+  }
+
+  function activeModalElement() {
+    if (c4Modal && c4Modal.classList.contains('open')) return c4Modal.querySelector('.c4-panel');
+    if (treeModal && treeModal.classList.contains('open')) return treeModal.querySelector('.tree-panel');
+    if (qsModal && qsModal.classList.contains('open')) return qsModal.querySelector('.qs-panel');
+    if (mobileSheet && mobileSheet.classList.contains('open')) return mobileSheet;
+    return null;
+  }
+
+  function trapFocus(e, container) {
+    if (!container) return;
+    const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = Array.from(container.querySelectorAll(selector))
+      .filter((el) => el.offsetParent !== null || el === document.activeElement);
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first || !container.contains(document.activeElement)) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (document.activeElement === last || !container.contains(document.activeElement)) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   /* ── Helpers ─────────────────────────────────────────────── */
   function nombre(p) {
     return [p.nombres, p.ap_pat, p.ap_mat].filter(Boolean).join(' ').trim();
@@ -151,6 +240,30 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+  function copyText(text) {
+    const value = String(text == null ? '' : text);
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      return navigator.clipboard.writeText(value);
+    }
+    return new Promise((resolve, reject) => {
+      const area = document.createElement('textarea');
+      area.value = value;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      try {
+        const ok = document.execCommand('copy');
+        area.remove();
+        if (ok) resolve();
+        else reject(new Error('No se pudo copiar'));
+      } catch (error) {
+        area.remove();
+        reject(error);
+      }
+    });
   }
   function sexoLetra(s) {
     const t = (s || '').trim().toUpperCase();
@@ -168,7 +281,7 @@
 
   /* ── Animated Counter ─────────────────────────────────────── */
   function animateValue(el, start, end, duration) {
-    if (start === end) { el.textContent = end; return; }
+    if (start === end || prefersReducedMotion()) { el.textContent = end; return; }
     const range = end - start;
     const startTime = performance.now();
     function step(now) {
@@ -189,6 +302,7 @@
 
   /* ── Ripple Effect ──────────────────────────────────────── */
   function addRipple(e, target) {
+    if (prefersReducedMotion()) return;
     const btn = target || e.currentTarget;
     const rect = btn.getBoundingClientRect();
     const ripple = document.createElement('span');
@@ -205,6 +319,7 @@
   function initParallax() {
     const blobs = document.querySelectorAll('.bg-blob');
     if (!blobs.length) return;
+    if (window.matchMedia('(hover: none)').matches || prefersReducedMotion()) return;
     let ticking = false;
     document.addEventListener('mousemove', (e) => {
       if (ticking) return;
@@ -223,21 +338,41 @@
   /* ── Toast ───────────────────────────────────────────────── */
   const TOAST_ICONS = { info: 'info', success: 'check_circle', error: 'error', warn: 'warning' };
 
-  function toast(msg, type = 'info') {
+  function toast(msg, type = 'info', opts = {}) {
     const el = document.createElement('div');
     el.className = `toast toast--${type}`;
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
     const icon = document.createElement('span');
     icon.className = 'material-symbols-outlined';
     icon.textContent = TOAST_ICONS[type] || TOAST_ICONS.info;
     const text = document.createElement('span');
+    text.className = 'toast__text';
     text.textContent = String(msg == null ? '' : msg);
     el.append(icon, text);
+
+    let actionBtn = null;
+    if (opts.actionLabel && typeof opts.onAction === 'function') {
+      actionBtn = document.createElement('button');
+      actionBtn.className = 'toast__action';
+      actionBtn.type = 'button';
+      actionBtn.textContent = opts.actionLabel;
+      actionBtn.addEventListener('click', () => {
+        try { opts.onAction(); } finally { removeToast(); }
+      });
+      el.appendChild(actionBtn);
+    }
+
     toastContainer.appendChild(el);
-    setTimeout(() => {
+    let removed = false;
+    function removeToast() {
+      if (removed) return;
+      removed = true;
       el.style.opacity = '0';
       el.style.transform = 'translateX(20px)';
       setTimeout(() => el.remove(), 300);
-    }, 3500);
+    }
+    const duration = Number.isFinite(opts.duration) ? opts.duration : (actionBtn ? 12000 : 3500);
+    setTimeout(removeToast, duration);
   }
 
   /* ── Connection check ────────────────────────────────────── */
@@ -376,141 +511,316 @@
     resultsList.innerHTML = html;
   }
 
-  /* ── Render results list ─────────────────────────────────── */
+  /* ── Render results: tarjetas y tabla ─────────────────────── */
+  const RESULT_SORT_ACCESSORS = {
+    nombre: (p) => nombre(p).toLowerCase(),
+    dni: (p) => String(p.dni || ''),
+    edad: (p) => Number(p.edad_anios) || -1,
+    ubigeo: (p) => String(p.ubigeo_dir || p.ubigeo_nac || '').toLowerCase(),
+    sexo: (p) => String(p.sexo || '').toLowerCase(),
+    civil: (p) => String(p.est_civil || '').toLowerCase(),
+  };
+
+  function sortResults(data) {
+    const arr = (data || []).slice();
+    const accessor = RESULT_SORT_ACCESSORS[resultsSort.key];
+    if (!accessor) return arr;
+    arr.sort((a, b) => {
+      const va = accessor(a);
+      const vb = accessor(b);
+      if (va < vb) return -1 * resultsSort.dir;
+      if (va > vb) return 1 * resultsSort.dir;
+      return 0;
+    });
+    return arr;
+  }
+
+  function initialsFor(p) {
+    const primerNombre = (p.nombres || '').trim().split(/\s+/)[0] || '';
+    const primerApe = (p.ap_pat || '').trim() || '';
+    return ((primerNombre[0] || '') + (primerApe[0] || '')).toUpperCase() || (sexoLetra(p.sexo) === 'F' ? 'F' : 'M');
+  }
+
+  function resultItemHtml(p, i, busqueda) {
+    const n = nombre(p);
+    let nHtml = escHtml(n || '-');
+    if (busqueda && n) {
+      const safe = busqueda.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`(${safe})`, 'gi');
+      nHtml = escHtml(n).replace(re, '<mark>$1</mark>');
+    }
+    const g = sexoLetra(p.sexo);
+    const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-item--active' : '';
+    const iniciales = initialsFor(p);
+    const avatarGenderClass = g === 'F' ? 'result-item__avatar--female' : 'result-item__avatar--male';
+
+    let vigenciaBadge = '';
+    if (p.fch_caducidad) {
+      const isVencido = new Date(p.fch_caducidad) < new Date();
+      vigenciaBadge = isVencido
+        ? '<span class="badge-mini badge-mini--expired">Caducado</span>'
+        : '<span class="badge-mini badge-mini--valid">Vigente</span>';
+    }
+    const edadBadge = p.edad_anios != null ? `<span class="badge-mini badge-mini--age">${p.edad_anios} años</span>` : '';
+    const civilBadge = p.est_civil ? `<span class="badge-mini">${escHtml(p.est_civil)}</span>` : '';
+
+    const fechaNac = p.fecha_nac ? `${escHtml(p.fecha_nac)} (${p.edad_anios || '-'} años)` : '-';
+    const padres = [p.padre ? `P: ${p.padre}` : '', p.madre ? `M: ${p.madre}` : ''].filter(Boolean).join(' · ') || 'No registrados';
+    const ubigeoDir = p.ubigeo_dir || p.ubigeo_nac || '-';
+    const anim = i < 8 ? ` slide-up stagger-${i + 1}` : '';
+
+    return `<div class="result-item${anim}${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" role="button" tabindex="0" aria-expanded="false" aria-label="${escHtml(n || 'Persona')}, DNI ${escHtml(p.dni || '-')}">
+      <div class="result-item__inner">
+        <div class="result-item__avatar ${avatarGenderClass}" title="${g === 'F' ? 'Femenino' : 'Masculino'}">
+          <span class="result-avatar-text">${escHtml(iniciales)}</span>
+        </div>
+        <div class="result-item__body">
+          <p class="result-item__name">${nHtml}</p>
+          <div class="result-item__meta">
+            <span class="result-item__dni">DNI ${escHtml(p.dni || '-')}</span>
+            ${vigenciaBadge}
+            ${edadBadge}
+            ${civilBadge}
+          </div>
+        </div>
+        <span class="material-symbols-outlined result-item__chevron" aria-hidden="true">chevron_right</span>
+      </div>
+      ${p.direccion ? `<p class="result-item__address"><span class="material-symbols-outlined" aria-hidden="true">location_on</span>${escHtml(p.direccion)}</p>` : ''}
+
+      <div class="result-item__inline-detail">
+        <div class="result-inline-data">
+          <div><strong>Nacimiento:</strong> ${fechaNac}</div>
+          <div><strong>Padres:</strong> ${escHtml(padres)}</div>
+          <div><strong>Ubigeo:</strong> ${escHtml(ubigeoDir)}</div>
+        </div>
+        <div class="inline-actions-grid">
+          <button class="btn-inline-action btn-inline-action--primary" data-inline-action="tree" data-dni="${escHtml(p.dni)}">
+            <span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">account_tree</span>
+            <span>Árbol</span>
+          </button>
+          <button class="btn-inline-action btn-inline-action--c4" data-inline-action="c4" data-dni="${escHtml(p.dni)}" title="Ficha de referencia (no oficial)">
+            <span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">print</span>
+            <span>C4</span>
+          </button>
+          <button class="btn-inline-action" data-inline-action="copy" data-index="${i}">
+            <span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">content_copy</span>
+            <span>Copiar</span>
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function sortIcon(key) {
+    if (resultsSort.key !== key) return 'unfold_more';
+    return resultsSort.dir > 0 ? 'arrow_upward' : 'arrow_downward';
+  }
+
+  function resultsTableHtml(data, busqueda) {
+    if (!data.length) {
+      return '<div class="results-table-wrap"><p class="table-empty">No se encontraron registros</p></div>';
+    }
+    const headers = [
+      ['nombre', 'Nombre'],
+      ['dni', 'DNI'],
+      ['edad', 'Edad'],
+      ['sexo', 'Sexo'],
+      ['ubigeo', 'Ubigeo'],
+      ['civil', 'Estado civil'],
+    ];
+    const head = headers.map(([key, label]) => `
+      <th scope="col" aria-sort="${resultsSort.key === key ? (resultsSort.dir > 0 ? 'ascending' : 'descending') : 'none'}">
+        <button type="button" data-sort="${key}">
+          ${label}
+          <span class="material-symbols-outlined" aria-hidden="true">${sortIcon(key)}</span>
+        </button>
+      </th>`).join('');
+
+    const rows = data.map((p, i) => {
+      const n = nombre(p) || '-';
+      const g = sexoLetra(p.sexo);
+      const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-row--active' : '';
+      const iniciales = initialsFor(p);
+      return `<tr class="result-row${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" tabindex="0" role="row" aria-label="${escHtml(n)}, DNI ${escHtml(p.dni || '-')}">
+        <td class="result-cell--name"><span class="table-avatar" aria-hidden="true">${escHtml(iniciales)}</span>${escHtml(n)}</td>
+        <td class="result-cell--dni">${escHtml(p.dni || '-')}</td>
+        <td>${p.edad_anios != null ? escHtml(p.edad_anios) + ' años' : '-'}</td>
+        <td>${g === 'F' ? 'Femenino' : g === 'M' ? 'Masculino' : '-'}</td>
+        <td>${escHtml(p.ubigeo_dir || p.ubigeo_nac || '-')}</td>
+        <td>${escHtml(p.est_civil || '-')}</td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="results-table-wrap">
+      <table class="results-table">
+        <caption class="sr-only">Resultados de búsqueda. Usa las cabeceras para ordenar.</caption>
+        <thead><tr>${head}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  function updateResultsControls() {
+    if (btnViewList) {
+      btnViewList.classList.toggle('view-switch__btn--active', resultsView === 'list');
+      btnViewList.setAttribute('aria-pressed', resultsView === 'list' ? 'true' : 'false');
+    }
+    if (btnViewTable) {
+      btnViewTable.classList.toggle('view-switch__btn--active', resultsView === 'table');
+      btnViewTable.setAttribute('aria-pressed', resultsView === 'table' ? 'true' : 'false');
+    }
+    if (btnToggleDetail) {
+      btnToggleDetail.setAttribute('aria-pressed', detailCollapsed ? 'false' : 'true');
+      const icon = btnToggleDetail.querySelector('.material-symbols-outlined');
+      if (icon) icon.textContent = detailCollapsed ? 'right_panel_open' : 'right_panel_close';
+    }
+    if (resultsGrid) resultsGrid.classList.toggle('results-grid--detail-hidden', detailCollapsed);
+  }
+
   function renderResults(data) {
-    if (!data || data.length === 0) {
-      resultsList.innerHTML = `<div class="empty-state" style="padding:54px 16px">
-        <span class="material-symbols-outlined" style="font-size:42px;color:var(--text-6);margin-bottom:12px">search_off</span>
-        <p style="font-weight:600;color:var(--text-4)">No se encontraron registros</p>
-        <p style="font-size:12px;color:var(--text-5);margin-top:4px">Intenta verificar el número de documento o escribe otros apellidos</p>
-      </div>`;
+    resultadosVista = sortResults(data || []);
+    updateResultsControls();
+
+    if (!resultadosVista.length) {
+      if (resultsView === 'table') {
+        resultsList.innerHTML = resultsTableHtml([], '');
+      } else {
+        resultsList.innerHTML = `<div class="empty-state" style="padding:54px 16px">
+          <span class="material-symbols-outlined" style="font-size:42px;color:var(--text-6);margin-bottom:12px" aria-hidden="true">search_off</span>
+          <p style="font-weight:600;color:var(--text-4)">No se encontraron registros</p>
+          <p style="font-size:12px;color:var(--text-5);margin-top:4px">Intenta verificar el número de documento o escribe otros apellidos</p>
+        </div>`;
+      }
       badgeCount.textContent = '0';
       return;
     }
 
     const busqueda = searchInput.value.trim().toLowerCase();
-    let html = '';
-    data.forEach((p, i) => {
-      const n = nombre(p);
-      let nHtml = escHtml(n || '-');
-      if (busqueda && n) {
-        const safe = busqueda.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(`(${safe})`, 'gi');
-        nHtml = escHtml(n).replace(re, '<mark>$1</mark>');
+    if (resultsView === 'table') {
+      resultsList.innerHTML = resultsTableHtml(resultadosVista, busqueda);
+    } else {
+      resultsList.innerHTML = resultadosVista.map((p, i) => resultItemHtml(p, i, busqueda)).join('');
+    }
+  }
+
+  function setResultsView(view, persist = true) {
+    resultsView = view === 'table' ? 'table' : 'list';
+    if (persist) {
+      try { localStorage.setItem('results_view', resultsView); } catch { /* sin almacenamiento */ }
+    }
+    renderResults(resultados);
+    syncUrlState();
+  }
+
+  function setDetailCollapsed(collapsed, persist = true) {
+    detailCollapsed = !!collapsed;
+    if (persist) {
+      try { localStorage.setItem('detail_collapsed', detailCollapsed ? '1' : '0'); } catch { /* sin almacenamiento */ }
+    }
+    updateResultsControls();
+    if (!detailCollapsed && personaSeleccionada) {
+      detailContent.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
+    }
+  }
+
+  function showResultAtIndex(index) {
+    const p = resultadosVista[index];
+    if (!p) return;
+    if (window.innerWidth <= 768) {
+      const el = resultsList.querySelector(`.result-item[data-index="${index}"]`);
+      if (!el) {
+        // En vista tabla no hay tarjeta expandible: usa el bottom sheet.
+        personaSeleccionada = p;
+        resultsList.querySelectorAll('.result-row').forEach((row) => {
+          row.classList.toggle('result-row--active', Number(row.getAttribute('data-index')) === index);
+        });
+        syncUrlState();
+        openMobileSheet(buildDetailHTML(p), p);
+        return;
       }
-      const g = sexoLetra(p.sexo);
-      const dot = g === 'M' ? 'status-dot--male' : g === 'F' ? 'status-dot--female' : 'status-dot--neutral';
-      const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-item--active' : '';
-
-      // Monogram initials & semantic styling
-      const primerNombre = (p.nombres || '').trim().split(/\s+/)[0] || '';
-      const primerApe = (p.ap_pat || '').trim() || '';
-      const iniciales = ((primerNombre[0] || '') + (primerApe[0] || '')).toUpperCase() || (g === 'F' ? 'F' : 'M');
-      const avatarGenderClass = g === 'F' ? 'result-item__avatar--female' : 'result-item__avatar--male';
-
-      let vigenciaBadge = '';
-      if (p.fch_caducidad) {
-        const isVencido = new Date(p.fch_caducidad) < new Date();
-        vigenciaBadge = isVencido
-          ? '<span class="badge-mini badge-mini--expired">Caducado</span>'
-          : '<span class="badge-mini badge-mini--valid">Vigente</span>';
-      }
-      const edadBadge = p.edad_anios != null ? `<span class="badge-mini badge-mini--age">${p.edad_anios} años</span>` : '';
-      const civilBadge = p.est_civil ? `<span class="badge-mini">${escHtml(p.est_civil)}</span>` : '';
-
-      // Inline detail summary for mobile
-      const fechaNac = p.fecha_nac ? `${escHtml(p.fecha_nac)} (${p.edad_anios || '-'} años)` : '-';
-      const padres = [p.padre ? `P: ${p.padre}` : '', p.madre ? `M: ${p.madre}` : ''].filter(Boolean).join(' · ') || 'No registrados';
-      const ubigeoDir = p.ubigeo_dir || p.ubigeo_nac || '-';
-
-      html += `<div class="result-item slide-up stagger-${Math.min(i + 1, 8)}${active}" data-index="${i}">
-        <div class="result-item__inner">
-          <div class="result-item__avatar ${avatarGenderClass}" title="${g === 'F' ? 'Femenino' : 'Masculino'}">
-            <span class="result-avatar-text">${escHtml(iniciales)}</span>
-          </div>
-          <div class="result-item__body">
-            <p class="result-item__name">${nHtml}</p>
-            <div class="result-item__meta">
-              <span class="result-item__dni">DNI ${escHtml(p.dni || '-')}</span>
-              ${vigenciaBadge}
-              ${edadBadge}
-              ${civilBadge}
-            </div>
-          </div>
-          <span class="material-symbols-outlined result-item__chevron">chevron_right</span>
-        </div>
-        ${p.direccion ? `<p class="result-item__address"><span class="material-symbols-outlined">location_on</span>${escHtml(p.direccion)}</p>` : ''}
-        
-        <!-- Mobile Inline Expandable Detail -->
-        <div class="result-item__inline-detail">
-          <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-3);">
-            <div><strong style="color:var(--text-4)">Nacimiento:</strong> ${fechaNac}</div>
-            <div><strong style="color:var(--text-4)">Padres:</strong> ${escHtml(padres)}</div>
-            <div><strong style="color:var(--text-4)">Ubigeo:</strong> ${escHtml(ubigeoDir)}</div>
-          </div>
-          <div class="inline-actions-grid">
-            <button class="btn-inline-action btn-inline-action--primary" data-inline-action="tree" data-dni="${escHtml(p.dni)}">
-              <span class="material-symbols-outlined" style="font-size:15px">account_tree</span>
-              <span>Árbol</span>
-            </button>
-            <button class="btn-inline-action btn-inline-action--c4" data-inline-action="c4" data-dni="${escHtml(p.dni)}" title="Ficha de referencia (no oficial)">
-              <span class="material-symbols-outlined" style="font-size:15px">print</span>
-              <span>C4</span>
-            </button>
-            <button class="btn-inline-action" data-inline-action="copy" data-index="${i}">
-              <span class="material-symbols-outlined" style="font-size:15px">content_copy</span>
-              <span>Copiar</span>
-            </button>
-          </div>
-        </div>
-      </div>`;
-    });
-
-    resultsList.innerHTML = html;
-    resultsList.querySelectorAll('.result-item').forEach((el, i) => {
-      el.addEventListener('click', (e) => {
-        const actionBtn = e.target.closest('[data-inline-action]');
-        if (actionBtn) {
-          const action = actionBtn.getAttribute('data-inline-action');
-          const dni = actionBtn.getAttribute('data-dni');
-          if (action === 'tree') {
-            openTreeModal(dni);
-          } else if (action === 'c4') {
-            openC4Modal(dni);
-          } else if (action === 'copy') {
-            const p = data[i];
-            const fullSummary = `DATOS DE IDENTIFICACIÓN (DNI)\n` +
-              `────────────────────────────────────────\n` +
-              `DNI: ${p.dni || '-'}\n` +
-              `NOMBRES: ${p.nombres || '-'}\n` +
-              `APELLIDOS: ${p.ap_pat || '-'} ${p.ap_mat || '-'}\n` +
-              `FECHA NAC: ${p.fecha_nac || '-'}\n` +
-              `DIRECCIÓN: ${p.direccion || '-'}\n` +
-              `UBIGEO: ${p.ubigeo_dir || '-'}`;
-            navigator.clipboard.writeText(fullSummary).then(() => toast('Ficha copiada', 'success'));
-          }
-          return;
-        }
-
-        // On mobile (<= 768px): toggle inline expansion smoothly without intrusive modal popups
-        if (window.innerWidth <= 768) {
-          const isExpanded = el.classList.contains('result-item--expanded');
-          resultsList.querySelectorAll('.result-item').forEach(item => item.classList.remove('result-item--expanded'));
-          if (!isExpanded) {
-            el.classList.add('result-item--expanded');
-            personaSeleccionada = data[i];
-            setTimeout(() => {
-              el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 80);
-          }
-          return;
-        }
-
-        // On desktop (> 768px): normal showDetail
-        showDetail(data[i], i);
+      const isExpanded = el.classList.contains('result-item--expanded');
+      resultsList.querySelectorAll('.result-item').forEach((item) => {
+        item.classList.remove('result-item--expanded');
+        item.setAttribute('aria-expanded', 'false');
       });
+      if (!isExpanded) {
+        el.classList.add('result-item--expanded');
+        el.setAttribute('aria-expanded', 'true');
+        personaSeleccionada = p;
+        syncUrlState();
+        setTimeout(() => el.scrollIntoView({ behavior: scrollBehavior(), block: 'nearest' }), 80);
+      } else {
+        personaSeleccionada = null;
+        syncUrlState();
+      }
+      return;
+    }
+    showDetail(p, index, true);
+  }
+
+  function copyResultSummary(p) {
+    const fullSummary = `DATOS DE IDENTIFICACIÓN (DNI)\n` +
+      `────────────────────────────────────────\n` +
+      `DNI: ${p.dni || '-'}\n` +
+      `NOMBRES: ${p.nombres || '-'}\n` +
+      `APELLIDOS: ${p.ap_pat || '-'} ${p.ap_mat || '-'}\n` +
+      `FECHA NAC: ${p.fecha_nac || '-'}\n` +
+      `DIRECCIÓN: ${p.direccion || '-'}\n` +
+      `UBIGEO: ${p.ubigeo_dir || '-'}`;
+    copyText(fullSummary)
+      .then(() => toast('Ficha copiada', 'success'))
+      .catch(() => toast('Error al copiar', 'error'));
+  }
+
+  function handleResultsClick(e) {
+    const actionBtn = e.target.closest('[data-inline-action]');
+    if (actionBtn) {
+      e.stopPropagation();
+      const action = actionBtn.getAttribute('data-inline-action');
+      const dni = actionBtn.getAttribute('data-dni');
+      const idx = Number(actionBtn.getAttribute('data-index'));
+      if (action === 'tree') openTreeModal(dni);
+      else if (action === 'c4') openC4Modal(dni);
+      else if (action === 'copy' && resultadosVista[idx]) copyResultSummary(resultadosVista[idx]);
+      return;
+    }
+
+    const row = e.target.closest('.result-item, .result-row');
+    if (!row) return;
+    const index = Number(row.getAttribute('data-index'));
+    if (!Number.isInteger(index)) return;
+    showResultAtIndex(index);
+  }
+
+  function handleResultsKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.target.closest('button, a')) return;
+    const row = e.target.closest('.result-item, .result-row');
+    if (!row) return;
+    e.preventDefault();
+    const index = Number(row.getAttribute('data-index'));
+    if (Number.isInteger(index)) showResultAtIndex(index);
+  }
+
+  if (resultsList) {
+    resultsList.addEventListener('click', handleResultsClick);
+    resultsList.addEventListener('keydown', handleResultsKeydown);
+    resultsList.addEventListener('click', (e) => {
+      const sortBtn = e.target.closest('[data-sort]');
+      if (!sortBtn) return;
+      const key = sortBtn.getAttribute('data-sort');
+      if (resultsSort.key === key) {
+        resultsSort.dir *= -1;
+      } else {
+        resultsSort = { key, dir: 1 };
+      }
+      renderResults(resultados);
     });
   }
+
+  if (btnViewList) btnViewList.addEventListener('click', () => setResultsView('list'));
+  if (btnViewTable) btnViewTable.addEventListener('click', () => setResultsView('table'));
+  if (btnToggleDetail) btnToggleDetail.addEventListener('click', () => setDetailCollapsed(!detailCollapsed));
 
   /* ── RUC consultation ────────────────────────────────────── */
   async function consultarRUC(btn, resultadoEl, dni) {
@@ -756,7 +1066,7 @@
     const copyBtn = container.querySelector('#btn-copy-dni');
     if (copyBtn) {
       copyBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(String(p.dni)).then(() => {
+        copyText(String(p.dni)).then(() => {
           toast('DNI copiado al portapapeles', 'success');
         }).catch(() => toast('Error al copiar', 'error'));
       });
@@ -786,7 +1096,7 @@
           `Fch. Caducidad: ${p.fch_caducidad || '-'}`
         ].join('\n');
 
-        navigator.clipboard.writeText(fullSummary).then(() => {
+        copyText(fullSummary).then(() => {
           toast('Ficha completa copiada', 'success');
         }).catch(() => toast('Error al copiar', 'error'));
       });
@@ -816,7 +1126,7 @@
           `▫️ *Emisión:* ${p.fch_emision || '-'} | *Caducidad:* ${p.fch_caducidad || '-'}`
         ].join('\n');
 
-        navigator.clipboard.writeText(fullReport).then(() => {
+        copyText(fullReport).then(() => {
           toast('Reporte formateado copiado al portapapeles', 'success');
         }).catch(() => toast('Error al copiar reporte', 'error'));
       });
@@ -868,10 +1178,12 @@
     treeZoom = 1.0;
     treePanX = 0;
     treePanY = 0;
+    treeNeedsFit = true;
     applyTreeTransform();
   }
 
   function setTreeZoom(delta) {
+    treeNeedsFit = false;
     treeZoom = Math.min(2.2, Math.max(0.4, treeZoom + delta));
     applyTreeTransform();
   }
@@ -879,7 +1191,10 @@
   // Pan & Zoom controls
   if (btnTreeZoomIn) btnTreeZoomIn.addEventListener('click', () => setTreeZoom(0.15));
   if (btnTreeZoomOut) btnTreeZoomOut.addEventListener('click', () => setTreeZoom(-0.15));
-  if (btnTreeReset) btnTreeReset.addEventListener('click', resetTreeTransform);
+  if (btnTreeReset) btnTreeReset.addEventListener('click', () => {
+    treeNeedsFit = true;
+    fitTreeToViewport();
+  });
 
   // Download Tree as Image (PNG)
   if (btnTreeDownload) {
@@ -937,6 +1252,7 @@
   // Mouse Drag to Pan
   if (treeViewport) {
     treeViewport.addEventListener('mousedown', (e) => {
+      if (treeView === 'list') return;
       // Don't drag if clicking an action button
       if (e.target.closest('.btn-node-mini, button, a')) return;
       isDraggingTree = true;
@@ -961,6 +1277,7 @@
 
     // Mouse Wheel to Zoom
     treeViewport.addEventListener('wheel', (e) => {
+      if (treeView === 'list') return;
       e.preventDefault();
       const delta = e.deltaY < 0 ? 0.08 : -0.08;
       setTreeZoom(delta);
@@ -968,6 +1285,7 @@
 
     // Touch Support (Pinch to Zoom & Drag)
     treeViewport.addEventListener('touchstart', (e) => {
+      if (treeView === 'list') return;
       if (e.touches.length === 1) {
         isDraggingTree = true;
         dragStartX = e.touches[0].clientX - treePanX;
@@ -982,6 +1300,7 @@
     }, { passive: true });
 
     treeViewport.addEventListener('touchmove', (e) => {
+      if (treeView === 'list') return;
       if (e.touches.length === 1 && isDraggingTree) {
         treePanX = e.touches[0].clientX - dragStartX;
         treePanY = e.touches[0].clientY - dragStartY;
@@ -1002,31 +1321,85 @@
     });
   }
 
-  function openTreeModal(dni) {
-    if (!treeModal) return;
-    treeModal.classList.add('open');
-    document.body.style.overflow = 'hidden';
-    resetTreeTransform();
-    treeContainer.innerHTML = '<div class="tree-loading"><div class="qs-spinner"></div><p>Construyendo red genealógica interactiva...</p></div>';
+  function treeBatchSize() {
+    return window.innerWidth <= 768 ? 6 : 12;
+  }
+
+  function treeCacheKey(dni) {
+    const limite = window.innerWidth <= 768 ? 60 : 200;
+    return `${dni}:${limite}`;
+  }
+
+  function treeMoreButton(key, remaining) {
+    return `<div class="tree-more-wrap">
+      <button type="button" class="tree-more-btn" data-tree-more="${key}">
+        <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
+        Ver más (${remaining})
+      </button>
+    </div>`;
+  }
+
+  function openTreeModal(dni, opts = {}) {
+    if (!treeModal || !dni) return;
+    const requestToken = ++treeRequestToken;
+    const isOpen = treeModal.classList.contains('open');
+    if (!isOpen) {
+      lastFocusedElement = document.activeElement;
+      treeModal.classList.add('open');
+      treeModal.removeAttribute('inert');
+      treeModal.setAttribute('aria-hidden', 'false');
+      updateBodyScrollLock();
+    }
+
+    const sameRoot = treeRootDni === dni;
+    if (!sameRoot) {
+      treeRootDni = dni;
+      treeData = null;
+      treeListTab = 'padres';
+      treeVisible = { hermanos: treeBatchSize(), hijos: treeBatchSize(), probables: treeBatchSize(), hijosProbables: treeBatchSize() };
+      treeNeedsFit = !opts.preserveView;
+      if (!opts.preserveView) resetTreeTransform();
+    }
+
     if (treeTitularBadge) treeTitularBadge.textContent = `DNI ${dni}`;
     if (treeStatsBar) treeStatsBar.innerHTML = '';
-    fetchArbol(dni);
+
+    const cacheKey = treeCacheKey(dni);
+    const cached = treeCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < TREE_CACHE_TTL) {
+      treeNeedsFit = !opts.preserveView;
+      renderArbol(cached.data);
+      setTimeout(() => { if ($('btn-close-tree')) $('btn-close-tree').focus(); }, 60);
+      return;
+    }
+
+    treeContainer.innerHTML = '<div class="tree-loading"><div class="qs-spinner"></div><p>Construyendo red genealógica interactiva...</p></div>';
+    fetchArbol(dni, requestToken);
+    setTimeout(() => { if ($('btn-close-tree')) $('btn-close-tree').focus(); }, 60);
   }
 
   function closeTreeModal() {
     if (!treeModal) return;
     treeModal.classList.remove('open');
-    document.body.style.overflow = '';
+    updateBodyScrollLock();
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+      lastFocusedElement.focus();
+    }
+    treeModal.setAttribute('aria-hidden', 'true');
+    treeModal.setAttribute('inert', '');
   }
 
   document.querySelectorAll('[data-close-tree]').forEach(el => el.addEventListener('click', closeTreeModal));
   if ($('btn-close-tree')) $('btn-close-tree').addEventListener('click', closeTreeModal);
 
-  async function fetchArbol(dni) {
+  async function fetchArbol(dni, requestToken) {
+    const limite = window.innerWidth <= 768 ? 60 : 200;
     try {
-      const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/arbol?limite=200`, { headers: apiHeaders() });
+      const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/arbol?limite=${limite}`, { headers: apiHeaders() });
+      if (requestToken !== treeRequestToken) return;
       if (!res.ok) {
         const body = await res.json().catch(() => null);
+        if (requestToken !== treeRequestToken) return;
         treeContainer.innerHTML = `<div class="tree-empty">
           <span class="material-symbols-outlined tree-empty__icon">error</span>
           <p class="tree-empty__title">${escHtml(body?.detail || 'Error al cargar el árbol')}</p>
@@ -1034,9 +1407,19 @@
         return;
       }
       const data = await res.json();
+      if (requestToken !== treeRequestToken) return;
+      treeCache.set(treeCacheKey(dni), { data, ts: Date.now() });
+      // Mantén la caché acotada: sólo los árboles consultados recientemente.
+      if (treeCache.size > 30) {
+        const oldest = [...treeCache.entries()]
+          .sort((a, b) => a[1].ts - b[1].ts)
+          .slice(0, treeCache.size - 30);
+        oldest.forEach(([key]) => treeCache.delete(key));
+      }
       renderArbol(data);
       refreshUserInfo();
     } catch {
+      if (requestToken !== treeRequestToken) return;
       treeContainer.innerHTML = `<div class="tree-empty">
         <span class="material-symbols-outlined tree-empty__icon">cloud_off</span>
         <p class="tree-empty__title">Error de conexión</p>
@@ -1044,6 +1427,33 @@
       </div>`;
     }
   }
+
+  function fitTreeToViewport() {
+    if (treeView !== 'graph' || !treeViewport || !treeContainer) return;
+    const vw = treeViewport.clientWidth;
+    const vh = treeViewport.clientHeight;
+    const cw = treeContainer.scrollWidth;
+    const ch = treeContainer.scrollHeight;
+    if (!vw || !vh || !cw || !ch) return;
+    const fit = Math.min((vw - 28) / cw, (vh - 28) / ch, 1.1);
+    treeZoom = Math.max(0.4, Math.min(1.25, fit));
+    treePanX = 0;
+    treePanY = 0;
+    treeNeedsFit = false;
+    applyTreeTransform();
+  }
+
+  function setTreeView(view, persist = true) {
+    treeView = view === 'list' ? 'list' : 'graph';
+    if (persist) {
+      try { localStorage.setItem('tree_view', treeView); } catch { /* sin almacenamiento */ }
+    }
+    renderTree();
+    if (treeView === 'graph' && treeNeedsFit) requestAnimationFrame(fitTreeToViewport);
+  }
+
+  if (btnTreeViewGraph) btnTreeViewGraph.addEventListener('click', () => setTreeView('graph'));
+  if (btnTreeViewList) btnTreeViewList.addEventListener('click', () => setTreeView('list'));
 
   function tipoRelacionLabel(tipo) {
     const etiquetas = {
@@ -1060,6 +1470,24 @@
       titular: 'Titular',
     };
     return etiquetas[tipo] || '';
+  }
+
+  function treeActionsHtml(nodo, nombreNodo) {
+    if (!nodo.dni || !nodo.encontrado) return '';
+    return `<div class="tree-node__actions">
+      <button class="btn-node-mini" type="button" data-tree-action="explore" data-dni="${escHtml(nodo.dni)}" title="Explorar árbol de ${escHtml(nombreNodo)}">
+        <span class="material-symbols-outlined" style="font-size:11px" aria-hidden="true">account_tree</span>
+        <span>Árbol</span>
+      </button>
+      <button class="btn-node-mini" type="button" data-tree-action="detail" data-dni="${escHtml(nodo.dni)}" title="Ver Ficha Completa">
+        <span class="material-symbols-outlined" style="font-size:11px" aria-hidden="true">visibility</span>
+        <span>Ficha</span>
+      </button>
+      <button class="btn-node-mini" type="button" data-tree-action="c4" data-dni="${escHtml(nodo.dni)}" title="Generar ficha de referencia (no oficial)">
+        <span class="material-symbols-outlined" style="font-size:11px" aria-hidden="true">print</span>
+        <span>C4</span>
+      </button>
+    </div>`;
   }
 
   function treeNodeHtml(nodo, opts = {}) {
@@ -1087,10 +1515,11 @@
     const relation = relationLabel ? `<div class="tree-node__relation">${escHtml(relationLabel)}</div>` : '';
     const meta = nodo.dni ? `DNI ${escHtml(nodo.dni)}` : (nodo.encontrado ? '' : 'No encontrado');
     const age = nodo.edad_anios ? ` · ${nodo.edad_anios}a` : '';
-    const ubigeo = nodo.ubigeo_dir && !opts.small ? `<div class="tree-node__ubigeo"><span class="material-symbols-outlined" style="font-size:10px">location_on</span>${escHtml(nodo.ubigeo_dir)}</div>` : '';
+    const ubigeo = nodo.ubigeo_dir && !opts.small ? `<div class="tree-node__ubigeo"><span class="material-symbols-outlined" style="font-size:10px" aria-hidden="true">location_on</span>${escHtml(nodo.ubigeo_dir)}</div>` : '';
 
     const confianza = Number(nodo.confianza);
-    const tieneConfianza = nodo.encontrado && !opts.isMain && Number.isFinite(confianza);
+    const tieneConfianza = nodo.encontrado && !opts.isMain &&
+      nodo.confianza != null && Number.isFinite(confianza);
     const nivel = String(nodo.nivel_confianza || 'baja').toLowerCase();
     const evidencia = (nodo.evidencia || [])
       .map((e) => `${e.descripcion || e.codigo || ''}${e.puntos != null ? ` (+${e.puntos})` : ''}`)
@@ -1107,109 +1536,117 @@
           const cn = [c.nombres, c.ap_pat, c.ap_mat].filter(Boolean).join(' ') || c.dni || 'Sin identificar';
           return `${cn} — ${c.confianza != null ? c.confianza + '%' : 'sin confianza'}${c.dni ? ` (DNI ${c.dni})` : ''}`;
         }).join('\n'))}">
-           <span class="material-symbols-outlined" style="font-size:11px">alt_route</span>
+           <span class="material-symbols-outlined" style="font-size:11px" aria-hidden="true">alt_route</span>
            ${alternativas.length} alternativa${alternativas.length !== 1 ? 's' : ''}
          </div>`
       : '';
 
-    // Action buttons inside node
-    const actionsHtml = nodo.dni && nodo.encontrado ? `
-      <div class="tree-node__actions">
-        <button class="btn-node-mini" data-tree-action="explore" data-dni="${escHtml(nodo.dni)}" title="Explorar árbol de ${escHtml(n)}">
-          <span class="material-symbols-outlined" style="font-size:11px">account_tree</span>
-          <span>Árbol</span>
-        </button>
-        <button class="btn-node-mini" data-tree-action="detail" data-dni="${escHtml(nodo.dni)}" title="Ver Ficha Completa">
-          <span class="material-symbols-outlined" style="font-size:11px">visibility</span>
-          <span>Ficha</span>
-        </button>
-        <button class="btn-node-mini" data-tree-action="c4" data-dni="${escHtml(nodo.dni)}" title="Generar ficha de referencia (no oficial)">
-          <span class="material-symbols-outlined" style="font-size:11px">print</span>
-          <span>C4</span>
-        </button>
-      </div>` : '';
+    const aria = `${relationLabel || 'Familiar'}: ${n}${nodo.dni ? `, DNI ${nodo.dni}` : ''}${nodo.edad_anios ? `, ${nodo.edad_anios} años` : ''}${tieneConfianza ? `, confianza ${confianza}%` : ''}`;
+    const focusable = nodo.dni && nodo.encontrado ? 'tabindex="0" role="button"' : 'tabindex="-1"';
 
     return `
-      <div class="tree-node ${gClass} ${mainClass} ${relClass} ${ghostClass} ${smClass} ${probableClass}" data-dni="${escHtml(nodo.dni || '')}" title="${escHtml(n)}">
+      <div class="tree-node ${gClass} ${mainClass} ${relClass} ${ghostClass} ${smClass} ${probableClass}" data-dni="${escHtml(nodo.dni || '')}" title="${escHtml(n)}" ${focusable} aria-label="${escHtml(aria)}">
         ${relation}
         <div class="tree-node__avatar">
-          <span class="material-symbols-outlined" style="font-size:20px">${icon}</span>
+          <span class="material-symbols-outlined" style="font-size:20px" aria-hidden="true">${icon}</span>
         </div>
         <div class="tree-node__name">${escHtml(n)}</div>
         <div class="tree-node__meta">${meta}${age}</div>
         ${confidenceHtml}
         ${alternativasHtml}
         ${ubigeo}
-        ${actionsHtml}
+        ${opts.small ? '' : treeActionsHtml(nodo, n)}
       </div>
     `;
   }
 
-  function renderArbol(data) {
-    const p = data.persona;
-    if (!p) {
-      treeContainer.innerHTML = `<div class="tree-empty">
-        <span class="material-symbols-outlined tree-empty__icon">person_off</span>
-        <p class="tree-empty__title">Sin datos genealógicos</p>
-        <p class="tree-empty__desc">No se encontró información familiar para esta persona</p>
-      </div>`;
-      return;
+  function treeListNodeHtml(nodo, relation, opts = {}) {
+    if (!nodo) return '';
+    const n = [nodo.nombres, nodo.ap_pat, nodo.ap_mat].filter(Boolean).join(' ').trim() || '-';
+    const g = sexoLetra(nodo.sexo);
+    const gClass = g === 'M' ? 'tree-list-item--male' : g === 'F' ? 'tree-list-item--female' : '';
+    const mainClass = opts.isMain ? 'tree-list-item--main' : '';
+    const ghostClass = !nodo.encontrado ? 'tree-list-item--ghost' : '';
+    const confianza = Number(nodo.confianza);
+    const nivel = String(nodo.nivel_confianza || 'baja').toLowerCase();
+    const confHtml = nodo.encontrado && !opts.isMain &&
+      nodo.confianza != null && Number.isFinite(confianza)
+      ? `<span class="tree-list-item__confidence tree-list-item__confidence--${escHtml(nivel)}">${confianza}% ${escHtml(nivel)}</span>`
+      : '';
+    const metaParts = [
+      relation,
+      nodo.dni ? `DNI ${nodo.dni}` : 'No encontrado',
+      nodo.edad_anios ? `${nodo.edad_anios} años` : '',
+      nodo.ubigeo_dir || '',
+    ].filter(Boolean);
+    const aria = `${relation || 'Familiar'}: ${n}${nodo.dni ? `, DNI ${nodo.dni}` : ''}${nodo.edad_anios ? `, ${nodo.edad_anios} años` : ''}`;
+    const focusable = nodo.dni && nodo.encontrado ? 'tabindex="0" role="button"' : 'tabindex="-1"';
+
+    return `<div class="tree-list-item ${gClass} ${mainClass} ${ghostClass}" data-dni="${escHtml(nodo.dni || '')}" ${focusable} aria-label="${escHtml(aria)}">
+      <div class="tree-list-item__avatar">
+        <span class="material-symbols-outlined" style="font-size:20px" aria-hidden="true">${g === 'F' ? 'woman' : 'person'}</span>
+      </div>
+      <div class="tree-list-item__body">
+        <div class="tree-list-item__name">${escHtml(n)}</div>
+        <div class="tree-list-item__meta">
+          ${metaParts.map((part, i) => i === 1 ? `<span class="dni">${escHtml(part)}</span>` : `<span>${escHtml(part)}</span>`).join('<span aria-hidden="true">·</span>')}
+          ${confHtml}
+        </div>
+      </div>
+      <div class="tree-list-item__actions">${treeActionsHtml(nodo, n).replace('class="tree-node__actions"', 'class="tree-list-item__actions-inner"')}</div>
+    </div>`;
+  }
+
+  function renderTreeStats(data) {
+    if (!treeStatsBar) return;
+    const gpCount = [data.abuelo_paterno, data.abuela_paterna, data.abuelo_materno, data.abuela_materna].filter(x => x && x.encontrado).length;
+    const parentsCount = [data.padre, data.madre].filter(x => x && x.encontrado).length;
+    const todosHermanos = data.hermanos || [];
+    const sibCount = todosHermanos.filter(h => h.tipo_relacion !== 'hermano_probable').length;
+    const probCount = todosHermanos.length - sibCount;
+    const todosHijos = data.hijos || [];
+    const childrenCount = todosHijos.filter(h => !String(h.tipo_relacion || '').endsWith('_probable')).length;
+    const childProbCount = todosHijos.length - childrenCount;
+
+    let statsHtml = `
+      <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#a855f7" aria-hidden="true">person</span><strong>1</strong> Titular</span>
+      <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#6366f1" aria-hidden="true">family_restroom</span><strong>${parentsCount}</strong> Padres</span>
+      <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#eab308" aria-hidden="true">elderly</span><strong>${gpCount}</strong> Abuelos</span>
+    `;
+    if (sibCount > 0) {
+      statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#10b981" aria-hidden="true">group</span><strong>${sibCount}</strong> Hermanos</span>`;
     }
-
-    // 1. Titular badge
-    const titularNombre = [p.nombres, p.ap_pat, p.ap_mat].filter(Boolean).join(' ').trim();
-    if (treeTitularBadge) {
-      treeTitularBadge.textContent = `${titularNombre} · DNI ${p.dni || '-'}`;
+    if (probCount > 0) {
+      statsHtml += `<span class="tree-stat-chip tree-stat-chip--probable"><span class="material-symbols-outlined" style="font-size:13px; color:#fbbf24" aria-hidden="true">help</span><strong>${probCount}</strong> Probables</span>`;
     }
-
-    // 2. Stats bar chips calculation
-    if (treeStatsBar) {
-      const gpCount = [data.abuelo_paterno, data.abuela_paterna, data.abuelo_materno, data.abuela_materna].filter(x => x && x.encontrado).length;
-      const parentsCount = [data.padre, data.madre].filter(x => x && x.encontrado).length;
-      const todosHermanos = data.hermanos || [];
-      const sibCount = todosHermanos.filter(h => h.tipo_relacion !== 'hermano_probable').length;
-      const probCount = todosHermanos.length - sibCount;
-      const todosHijos = data.hijos || [];
-      const childrenCount = todosHijos.filter(h => !String(h.tipo_relacion || '').endsWith('_probable')).length;
-      const childProbCount = todosHijos.length - childrenCount;
-
-      let statsHtml = `
-        <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#a855f7">person</span><strong>1</strong> Titular</span>
-        <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#6366f1">family_restroom</span><strong>${parentsCount}</strong> Padres</span>
-        <span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#eab308">elderly</span><strong>${gpCount}</strong> Abuelos</span>
-      `;
-      if (sibCount > 0) {
-        statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#10b981">group</span><strong>${sibCount}</strong> Hermanos</span>`;
-      }
-      if (probCount > 0) {
-        statsHtml += `<span class="tree-stat-chip tree-stat-chip--probable"><span class="material-symbols-outlined" style="font-size:13px; color:#fbbf24">help</span><strong>${probCount}</strong> Probables</span>`;
-      }
-      if (childrenCount > 0) {
-        statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#0284c7">child_care</span><strong>${childrenCount}</strong> Hijos</span>`;
-      }
-      if (childProbCount > 0) {
-        statsHtml += `<span class="tree-stat-chip tree-stat-chip--probable"><span class="material-symbols-outlined" style="font-size:13px; color:#fbbf24">help</span><strong>${childProbCount}</strong> Hijos prob.</span>`;
-      }
-      treeStatsBar.innerHTML = statsHtml;
-
-      const advertencias = (data.meta && data.meta.advertencias) || [];
-      if (advertencias.length) {
-        const warn = document.createElement('div');
-        warn.className = 'tree-warnings';
-        const icon = document.createElement('span');
-        icon.className = 'material-symbols-outlined';
-        icon.textContent = 'info';
-        const list = document.createElement('ul');
-        advertencias.forEach((texto) => {
-          const li = document.createElement('li');
-          li.textContent = texto;
-          list.appendChild(li);
-        });
-        warn.append(icon, list);
-        treeStatsBar.appendChild(warn);
-      }
+    if (childrenCount > 0) {
+      statsHtml += `<span class="tree-stat-chip"><span class="material-symbols-outlined" style="font-size:13px; color:#0284c7" aria-hidden="true">child_care</span><strong>${childrenCount}</strong> Hijos</span>`;
     }
+    if (childProbCount > 0) {
+      statsHtml += `<span class="tree-stat-chip tree-stat-chip--probable"><span class="material-symbols-outlined" style="font-size:13px; color:#fbbf24" aria-hidden="true">help</span><strong>${childProbCount}</strong> Hijos prob.</span>`;
+    }
+    treeStatsBar.innerHTML = statsHtml;
 
+    const advertencias = (data.meta && data.meta.advertencias) || [];
+    if (advertencias.length) {
+      const warn = document.createElement('div');
+      warn.className = 'tree-warnings';
+      const icon = document.createElement('span');
+      icon.className = 'material-symbols-outlined';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = 'info';
+      const list = document.createElement('ul');
+      advertencias.forEach((texto) => {
+        const li = document.createElement('li');
+        li.textContent = texto;
+        list.appendChild(li);
+      });
+      warn.append(icon, list);
+      treeStatsBar.appendChild(warn);
+    }
+  }
+
+  function renderTreeGraph(data) {
     let html = '<div class="tree">';
 
     // ── Level 0: Grandparents ──
@@ -1224,9 +1661,7 @@
         html += '<div class="tree-gp-pair">';
         if (data.abuelo_paterno) html += treeNodeHtml(data.abuelo_paterno, { small: true, relation: 'Abuelo Pat.' });
         if (data.abuela_paterna) html += treeNodeHtml(data.abuela_paterna, { small: true, relation: 'Abuela Pat.' });
-        html += '</div>';
-        html += '<div class="tree-gp-connector"></div>';
-        html += '</div>';
+        html += '</div><div class="tree-gp-connector"></div></div>';
       }
       if (hasGPMat) {
         html += '<div class="tree-gp-couple">';
@@ -1234,12 +1669,9 @@
         html += '<div class="tree-gp-pair">';
         if (data.abuelo_materno) html += treeNodeHtml(data.abuelo_materno, { small: true, relation: 'Abuelo Mat.' });
         if (data.abuela_materna) html += treeNodeHtml(data.abuela_materna, { small: true, relation: 'Abuela Mat.' });
-        html += '</div>';
-        html += '<div class="tree-gp-connector"></div>';
-        html += '</div>';
+        html += '</div><div class="tree-gp-connector"></div></div>';
       }
-      html += '</div></div>';
-      html += '<div class="tree-connector"></div>';
+      html += '</div></div><div class="tree-connector"></div>';
     }
 
     // ── Level 1: Parents ──
@@ -1248,115 +1680,287 @@
       html += '<div class="tree-level"><div class="tree-couple">';
       if (data.padre) html += treeNodeHtml(data.padre, { relation: 'Padre' });
       if (data.madre) html += treeNodeHtml(data.madre, { relation: 'Madre' });
-      html += '</div></div>';
-      html += '<div class="tree-connector"></div>';
+      html += '</div></div><div class="tree-connector"></div>';
     }
 
-    // ── Level 2: Person + Siblings ──
+    // ── Level 2: Person + Siblings (progresivo) ──
     const todosHermanos = data.hermanos || [];
     const hermanos = todosHermanos.filter(h => h.tipo_relacion !== 'hermano_probable');
     const probables = todosHermanos.filter(h => h.tipo_relacion === 'hermano_probable');
+    const visiblesHermanos = hermanos.slice(0, treeVisible.hermanos);
     html += '<p class="tree-gen-label">Persona' + (hermanos.length > 0 ? ' y Hermanos' : '') + '</p>';
     html += '<div class="tree-level"><div class="tree-siblings-row">';
-    hermanos.forEach((h, i) => {
-      if (i === Math.floor(hermanos.length / 2)) {
-        html += treeNodeHtml(p, { isMain: true, relation: 'Titular' });
+    visiblesHermanos.forEach((h, i) => {
+      if (i === Math.floor(visiblesHermanos.length / 2)) {
+        html += treeNodeHtml(data.persona, { isMain: true, relation: 'Titular' });
       }
       html += treeNodeHtml(h, { relation: tipoRelacionLabel(h.tipo_relacion) || 'Hermano/a' });
     });
-    if (hermanos.length === 0) {
-      html += treeNodeHtml(p, { isMain: true, relation: 'Titular' });
+    if (visiblesHermanos.length === 0) {
+      html += treeNodeHtml(data.persona, { isMain: true, relation: 'Titular' });
     }
     html += '</div>';
+    if (hermanos.length > visiblesHermanos.length) {
+      html += treeMoreButton('hermanos', hermanos.length - visiblesHermanos.length);
+    }
     if (probables.length > 0) {
+      const visiblesProbables = probables.slice(0, treeVisible.probables);
       html += `<details class="tree-probables">
-        <summary><span class="material-symbols-outlined" style="font-size:14px">help</span> ${probables.length} hermano(s) probable(s) — baja confianza</summary>
+        <summary><span class="material-symbols-outlined" style="font-size:14px" aria-hidden="true">help</span> ${probables.length} hermano(s) probable(s) — baja confianza</summary>
         <div class="tree-siblings-row tree-siblings-row--probables">`;
-      probables.forEach(h => {
+      visiblesProbables.forEach(h => {
         html += treeNodeHtml(h, { relation: 'Hermano probable', probable: true });
       });
-      html += '</div></details>';
+      html += '</div>';
+      if (probables.length > visiblesProbables.length) {
+        html += treeMoreButton('probables', probables.length - visiblesProbables.length);
+      }
+      html += '</details>';
     }
     html += '</div>';
 
-    // ── Level 3: Children ──
+    // ── Level 3: Children (progresivo) ──
     const todosHijos = data.hijos || [];
     const hijos = todosHijos.filter(h => !String(h.tipo_relacion || '').endsWith('_probable'));
     const hijosProbables = todosHijos.filter(h => String(h.tipo_relacion || '').endsWith('_probable'));
+    const visiblesHijos = hijos.slice(0, treeVisible.hijos);
     if (todosHijos.length > 0) {
-      html += '<div class="tree-connector"></div>';
-      html += '<p class="tree-gen-label">Hijos</p>';
-      if (hijos.length > 0) {
+      html += '<div class="tree-connector"></div><p class="tree-gen-label">Hijos</p>';
+      if (visiblesHijos.length > 0) {
         html += '<div class="tree-level"><div class="tree-branch">';
-        hijos.forEach(h => {
+        visiblesHijos.forEach(h => {
           html += '<div class="tree-branch-child">';
           html += treeNodeHtml(h, { relation: tipoRelacionLabel(h.tipo_relacion) || 'Hijo/a' });
           html += '</div>';
         });
-        html += '</div></div>';
+        html += '</div>';
+        if (hijos.length > visiblesHijos.length) {
+          html += treeMoreButton('hijos', hijos.length - visiblesHijos.length);
+        }
+        html += '</div>';
       }
       if (hijosProbables.length > 0) {
+        const visiblesHijosProb = hijosProbables.slice(0, treeVisible.hijosProbables);
         html += `<details class="tree-probables">
-          <summary><span class="material-symbols-outlined" style="font-size:14px">help</span> ${hijosProbables.length} hijo(s) probable(s) — baja confianza</summary>
+          <summary><span class="material-symbols-outlined" style="font-size:14px" aria-hidden="true">help</span> ${hijosProbables.length} hijo(s) probable(s) — baja confianza</summary>
           <div class="tree-level"><div class="tree-siblings-row tree-siblings-row--probables">`;
-        hijosProbables.forEach(h => {
+        visiblesHijosProb.forEach(h => {
           html += treeNodeHtml(h, { relation: tipoRelacionLabel(h.tipo_relacion) || 'Hijo/a probable', probable: true });
         });
-        html += '</div></div></details>';
+        html += '</div>';
+        if (hijosProbables.length > visiblesHijosProb.length) {
+          html += treeMoreButton('hijos_probables', hijosProbables.length - visiblesHijosProb.length);
+        }
+        html += '</div></details>';
       }
     }
 
     html += '</div>';
-    treeContainer.innerHTML = html;
-
-    // Bind interactive actions on nodes
-    treeContainer.querySelectorAll('.btn-node-mini').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const action = btn.getAttribute('data-tree-action');
-        const nodeDni = btn.getAttribute('data-dni');
-        if (!nodeDni) return;
-
-        if (action === 'explore') {
-          // Dynamic Expansion: Shift tree around this person without closing modal
-          openTreeModal(nodeDni);
-        } else if (action === 'detail') {
-          // Navigate to full detail
-          closeTreeModal();
-          setMode('dni');
-          searchInput.value = nodeDni;
-          btnClearSearch.classList.add('visible');
-          search();
-        } else if (action === 'c4') {
-          // Open C4 for this person
-          closeTreeModal();
-          openC4Modal(nodeDni);
-        }
-      });
-    });
-
-    // Clicking the card body directly explores or navigates
-    treeContainer.querySelectorAll('.tree-node:not(.tree-node--ghost)').forEach(card => {
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.btn-node-mini')) return;
-        const nodeDni = card.getAttribute('data-dni');
-        if (nodeDni && nodeDni !== p.dni) {
-          openTreeModal(nodeDni);
-        }
-      });
-    });
+    return html;
   }
 
+  function renderTreeList(data) {
+    const todosHermanos = data.hermanos || [];
+    const todosHijos = data.hijos || [];
+    const abuelos = [
+      [data.abuelo_paterno, 'Abuelo paterno'],
+      [data.abuela_paterna, 'Abuela paterna'],
+      [data.abuelo_materno, 'Abuelo materno'],
+      [data.abuela_materna, 'Abuela materna'],
+    ].filter(([nodo]) => nodo);
+    const padres = [
+      [data.padre, 'Padre'],
+      [data.madre, 'Madre'],
+    ].filter(([nodo]) => nodo);
+
+    const tabs = [
+      ['padres', 'Padres', padres.length],
+      ['abuelos', 'Abuelos', abuelos.length],
+      ['hermanos', 'Hermanos', todosHermanos.length],
+      ['hijos', 'Hijos', todosHijos.length],
+    ];
+    if (!tabs.some(([key]) => key === treeListTab)) treeListTab = 'padres';
+
+    let html = '<div class="tree-list">';
+    html += '<div class="tree-tabs" role="tablist" aria-label="Secciones del árbol">';
+    tabs.forEach(([key, label, count]) => {
+      const active = key === treeListTab;
+      html += `<button type="button" class="tree-tab${active ? ' tree-tab--active' : ''}" role="tab" aria-selected="${active ? 'true' : 'false'}" data-tree-tab="${key}">
+        ${label}<span class="tree-tab__count">${count}</span>
+      </button>`;
+    });
+    html += '</div>';
+
+    html += `<div class="tree-list__section" role="tabpanel" aria-label="${escHtml(tabs.find(([key]) => key === treeListTab)[1])}">`;
+    if (treeListTab === 'padres') {
+      if (!padres.length) {
+        html += '<p class="tree-list__empty">No se encontraron progenitores en el padrón.</p>';
+      } else {
+        padres.forEach(([nodo, relation]) => { html += treeListNodeHtml(nodo, relation); });
+      }
+    } else if (treeListTab === 'abuelos') {
+      if (!abuelos.length) {
+        html += '<p class="tree-list__empty">No se encontraron abuelos en el padrón.</p>';
+      } else {
+        abuelos.forEach(([nodo, relation]) => { html += treeListNodeHtml(nodo, relation); });
+      }
+    } else if (treeListTab === 'hermanos') {
+      if (!todosHermanos.length) {
+        html += '<p class="tree-list__empty">No se encontraron hermanos en el padrón.</p>';
+      } else {
+        const visibles = todosHermanos.slice(0, treeVisible.hermanos);
+        visibles.forEach((nodo) => {
+          html += treeListNodeHtml(nodo, tipoRelacionLabel(nodo.tipo_relacion) || 'Hermano/a');
+        });
+        if (todosHermanos.length > visibles.length) {
+          html += treeMoreButton('hermanos', todosHermanos.length - visibles.length);
+        }
+      }
+    } else if (treeListTab === 'hijos') {
+      if (!todosHijos.length) {
+        html += '<p class="tree-list__empty">No se encontraron hijos en el padrón.</p>';
+      } else {
+        const visibles = todosHijos.slice(0, treeVisible.hijos);
+        visibles.forEach((nodo) => {
+          html += treeListNodeHtml(nodo, tipoRelacionLabel(nodo.tipo_relacion) || 'Hijo/a');
+        });
+        if (todosHijos.length > visibles.length) {
+          html += treeMoreButton('hijos', todosHijos.length - visibles.length);
+        }
+      }
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderTree() {
+    if (!treeData || !treeData.persona) return;
+    const panel = treeModal ? treeModal.querySelector('.tree-panel') : null;
+    if (panel) panel.classList.toggle('tree-panel--list', treeView === 'list');
+    if (btnTreeViewGraph) {
+      btnTreeViewGraph.classList.toggle('view-switch__btn--active', treeView === 'graph');
+      btnTreeViewGraph.setAttribute('aria-pressed', treeView === 'graph' ? 'true' : 'false');
+    }
+    if (btnTreeViewList) {
+      btnTreeViewList.classList.toggle('view-switch__btn--active', treeView === 'list');
+      btnTreeViewList.setAttribute('aria-pressed', treeView === 'list' ? 'true' : 'false');
+    }
+    treeContainer.innerHTML = treeView === 'list'
+      ? renderTreeList(treeData)
+      : renderTreeGraph(treeData);
+    if (treeView === 'graph' && treeNeedsFit) requestAnimationFrame(fitTreeToViewport);
+  }
+
+  function renderArbol(data) {
+    if (!data || !data.persona) {
+      treeContainer.innerHTML = `<div class="tree-empty">
+        <span class="material-symbols-outlined tree-empty__icon">person_off</span>
+        <p class="tree-empty__title">Sin datos genealógicos</p>
+        <p class="tree-empty__desc">No se encontró información familiar para esta persona</p>
+      </div>`;
+      return;
+    }
+    treeData = data;
+    const p = data.persona;
+    const titularNombre = [p.nombres, p.ap_pat, p.ap_mat].filter(Boolean).join(' ').trim();
+    if (treeTitularBadge) {
+      treeTitularBadge.textContent = `${titularNombre} · DNI ${p.dni || '-'}`;
+    }
+    renderTreeStats(data);
+    renderTree();
+  }
+
+  function handleTreeClick(e) {
+    const moreBtn = e.target.closest('[data-tree-more]');
+    if (moreBtn) {
+      const key = moreBtn.getAttribute('data-tree-more');
+      const batch = treeBatchSize();
+      if (key === 'hermanos') treeVisible.hermanos += batch;
+      else if (key === 'hijos') treeVisible.hijos += batch;
+      else if (key === 'probables') treeVisible.probables += batch;
+      else if (key === 'hijos_probables') treeVisible.hijosProbables += batch;
+      renderTree();
+      const nextMore = treeContainer.querySelector(`[data-tree-more="${key}"]`);
+      if (nextMore) nextMore.focus();
+      else if ($('btn-close-tree')) $('btn-close-tree').focus();
+      return;
+    }
+
+    const tabBtn = e.target.closest('[data-tree-tab]');
+    if (tabBtn) {
+      treeListTab = tabBtn.getAttribute('data-tree-tab');
+      renderTree();
+      const activeTab = treeContainer.querySelector('.tree-tab--active');
+      if (activeTab) activeTab.focus();
+      return;
+    }
+
+    const actionBtn = e.target.closest('[data-tree-action]');
+    if (actionBtn) {
+      e.stopPropagation();
+      const action = actionBtn.getAttribute('data-tree-action');
+      const nodeDni = actionBtn.getAttribute('data-dni');
+      if (!nodeDni) return;
+      if (action === 'explore') {
+        openTreeModal(nodeDni, { preserveView: true });
+      } else if (action === 'detail') {
+        closeTreeModal();
+        setMode('dni');
+        searchInput.value = nodeDni;
+        btnClearSearch.classList.add('visible');
+        search();
+      } else if (action === 'c4') {
+        closeTreeModal();
+        openC4Modal(nodeDni);
+      }
+      return;
+    }
+
+    const card = e.target.closest('.tree-node, .tree-list-item');
+    if (!card) return;
+    const nodeDni = card.getAttribute('data-dni');
+    if (nodeDni && nodeDni !== treeRootDni && !card.classList.contains('tree-node--ghost') && !card.classList.contains('tree-list-item--ghost')) {
+      openTreeModal(nodeDni, { preserveView: true });
+    }
+  }
+
+  function handleTreeKeydown(e) {
+    const card = e.target.closest('.tree-node, .tree-list-item');
+    if (!card) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      card.click();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const focusables = Array.from(treeContainer.querySelectorAll('.tree-node[tabindex="0"], .tree-list-item[tabindex="0"]'));
+    const index = focusables.indexOf(card);
+    if (index < 0) return;
+    e.preventDefault();
+    const delta = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? 1 : -1;
+    const next = focusables[(index + delta + focusables.length) % focusables.length];
+    if (next) next.focus();
+  }
+
+  if (treeContainer) {
+    treeContainer.addEventListener('click', handleTreeClick);
+    treeContainer.addEventListener('keydown', handleTreeKeydown);
+  }
 
   /* ═══════════════════════════════════════════════════════════════════
      FICHA DE REFERENCIA C4 — DATOS DEL PADRÓN (NO OFICIAL)
      ═══════════════════════════════════════════════════════════════════ */
   async function openC4Modal(dni) {
     if (!c4Modal) return;
+    if (!c4Modal.classList.contains('open')) lastFocusedC4 = document.activeElement;
 
     c4Modal.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    c4Modal.removeAttribute('inert');
+    c4Modal.setAttribute('aria-hidden', 'false');
+    updateBodyScrollLock();
     c4Container.innerHTML = '<div class="c4-loading"><div class="qs-spinner"></div><p>Generando ficha de referencia (no oficial)...</p></div>';
+    setTimeout(() => { if (btnCloseC4) btnCloseC4.focus(); }, 60);
 
     try {
       const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/c4`, { headers: apiHeaders() });
@@ -1383,7 +1987,10 @@
   function closeC4Modal() {
     if (!c4Modal) return;
     c4Modal.classList.remove('open');
-    document.body.style.overflow = '';
+    updateBodyScrollLock();
+    if (lastFocusedC4 && typeof lastFocusedC4.focus === 'function') lastFocusedC4.focus();
+    c4Modal.setAttribute('aria-hidden', 'true');
+    c4Modal.setAttribute('inert', '');
   }
 
   if (btnCloseC4) btnCloseC4.addEventListener('click', closeC4Modal);
@@ -1593,41 +2200,126 @@
   }
 
 
-  function showDetail(p, index) {
+  function showDetail(p, index, expand = false) {
+    const token = ++detailRenderToken;
     personaSeleccionada = p;
-    resultsList.querySelectorAll('.result-item').forEach((el, i) => {
-      el.classList.toggle('result-item--active', i === index);
+    if (expand && detailCollapsed && window.innerWidth > 768) setDetailCollapsed(false);
+    resultsList.querySelectorAll('.result-item').forEach((el) => {
+      const isActive = Number(el.getAttribute('data-index')) === index;
+      el.classList.toggle('result-item--active', isActive);
+    });
+    resultsList.querySelectorAll('.result-row').forEach((el) => {
+      el.classList.toggle('result-row--active', Number(el.getAttribute('data-index')) === index);
     });
 
     const html = buildDetailHTML(p);
+    syncUrlState();
 
-    // Smooth transition on detail panel
-    detailContent.style.opacity = '0';
-    detailContent.style.transform = 'translateX(12px)';
-    setTimeout(() => {
+    if (prefersReducedMotion()) {
       detailContent.innerHTML = html;
       detailEmpty.classList.add('hidden');
       detailContent.classList.remove('hidden');
-      detailContent.style.transition = 'opacity 0.35s cubic-bezier(0.22,1,0.36,1), transform 0.35s cubic-bezier(0.22,1,0.36,1)';
+      detailContent.style.opacity = '1';
+      detailContent.style.transform = 'none';
+      bindDetailEvents(detailContent, p);
+      return;
+    }
+
+    // Transición corta y sólo sobre opacity/transform.
+    detailContent.style.opacity = '0';
+    detailContent.style.transform = 'translateX(12px)';
+    setTimeout(() => {
+      if (token !== detailRenderToken) return;
+      detailContent.innerHTML = html;
+      detailEmpty.classList.add('hidden');
+      detailContent.classList.remove('hidden');
+      detailContent.style.transition = 'opacity 0.25s cubic-bezier(0.22,1,0.36,1), transform 0.25s cubic-bezier(0.22,1,0.36,1)';
       detailContent.style.opacity = '1';
       detailContent.style.transform = 'translateX(0)';
       bindDetailEvents(detailContent, p);
-    }, 80);
+    }, 60);
   }
+
+  /* ── Panel de detalle redimensionable ────────────────────── */
+  function applyDetailWidth(width, persist = true) {
+    detailWidth = Math.min(640, Math.max(320, Math.round(width)));
+    document.documentElement.style.setProperty('--detail-w', `${detailWidth}px`);
+    if (detailResizer) detailResizer.setAttribute('aria-valuenow', String(detailWidth));
+    if (persist) {
+      try { localStorage.setItem('detail_width', String(detailWidth)); } catch { /* sin almacenamiento */ }
+    }
+  }
+
+  if (detailResizer) {
+    let resizing = false;
+    let resizeStartX = 0;
+    let resizeStartWidth = 0;
+
+    const startResize = (clientX) => {
+      if (window.innerWidth <= 768) return;
+      resizing = true;
+      resizeStartX = clientX;
+      resizeStartWidth = detailPanel ? detailPanel.getBoundingClientRect().width : detailWidth;
+      detailResizer.classList.add('is-dragging');
+      document.body.classList.add('resizing-detail');
+    };
+
+    detailResizer.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      detailResizer.setPointerCapture?.(e.pointerId);
+      startResize(e.clientX);
+    });
+
+    detailResizer.addEventListener('pointermove', (e) => {
+      if (!resizing) return;
+      // El panel está a la derecha: mover el puntero a la izquierda lo agranda.
+      applyDetailWidth(resizeStartWidth - (e.clientX - resizeStartX), false);
+    });
+
+    const stopResize = () => {
+      if (!resizing) return;
+      resizing = false;
+      detailResizer.classList.remove('is-dragging');
+      document.body.classList.remove('resizing-detail');
+      applyDetailWidth(detailWidth);
+    };
+    detailResizer.addEventListener('pointerup', stopResize);
+    detailResizer.addEventListener('pointercancel', stopResize);
+    window.addEventListener('pointerup', stopResize);
+
+    detailResizer.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      applyDetailWidth(detailWidth + (e.key === 'ArrowLeft' ? 24 : -24));
+    });
+  }
+  applyDetailWidth(detailWidth);
 
   /* ── Mobile sheet ────────────────────────────────────────── */
   function openMobileSheet(html, p) {
+    lastFocusedElement = document.activeElement;
     mobileSheetContent.innerHTML = html;
     mobileSheet.classList.add('open');
+    mobileSheet.removeAttribute('inert');
+    mobileSheet.setAttribute('aria-hidden', 'false');
     mobileSheetOverlay.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    updateBodyScrollLock();
     bindDetailEvents(mobileSheetContent, p);
+    setTimeout(() => {
+      const closeBtn = mobileSheet.querySelector('.sheet__close');
+      if (closeBtn) closeBtn.focus();
+    }, 50);
   }
 
   function closeMobileSheet() {
     mobileSheet.classList.remove('open');
     mobileSheetOverlay.classList.remove('open');
-    document.body.style.overflow = '';
+    updateBodyScrollLock();
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+      lastFocusedElement.focus();
+    }
+    mobileSheet.setAttribute('aria-hidden', 'true');
+    mobileSheet.setAttribute('inert', '');
   }
 
   document.querySelectorAll('[data-close-sheet]').forEach((el) =>
@@ -1694,6 +2386,54 @@
     return detail;
   }
 
+  /* ── Estado en la URL (compartir y atrás/adelante) ───────── */
+  function syncUrlState() {
+    try {
+      const url = new URL(window.location);
+      const q = searchInput.value.trim();
+      if (q) url.searchParams.set('q', q);
+      else url.searchParams.delete('q');
+      url.searchParams.set('mode', searchMode);
+      if (personaSeleccionada && personaSeleccionada.dni) {
+        url.searchParams.set('dni', personaSeleccionada.dni);
+      } else {
+        url.searchParams.delete('dni');
+      }
+      if (resultsView === 'table') url.searchParams.set('view', 'table');
+      else url.searchParams.delete('view');
+      window.history.replaceState({}, '', url);
+    } catch { /* URL no disponible */ }
+  }
+
+  function applyUrlState() {
+    let params;
+    try { params = new URLSearchParams(window.location.search); } catch { return; }
+    const mode = params.get('mode');
+    if (mode === 'nombre' || mode === 'dni') setMode(mode);
+    const view = params.get('view');
+    if (view === 'table' || view === 'list') {
+      resultsView = view;
+      updateResultsControls();
+    }
+    const q = params.get('q');
+    if (q && q !== searchInput.value.trim()) {
+      searchInput.value = q;
+      btnClearSearch.classList.add('visible');
+      search();
+      return;
+    }
+    if (resultados.length) {
+      renderResults(resultados);
+      const dni = params.get('dni');
+      if (dni) {
+        const index = resultadosVista.findIndex((p) => p.dni === dni);
+        if (index >= 0) showDetail(resultadosVista[index], index, true);
+      }
+    }
+  }
+
+  window.addEventListener('popstate', applyUrlState);
+
   /* ── Search ──────────────────────────────────────────────── */
   async function search() {
     const q = searchInput.value.trim();
@@ -1705,18 +2445,16 @@
       if (q.length < 3) { toast('Ingresa al menos 3 caracteres', 'warn'); return; }
     }
 
-    // Actualizar URL sin recargar la página
-    try {
-      const url = new URL(window.location);
-      url.searchParams.set('q', q);
-      url.searchParams.set('mode', searchMode);
-      window.history.replaceState({}, '', url);
-    } catch {}
+    // Conserva el DNI solicitado en la URL antes de limpiar el estado previo.
+    let requestedDni = null;
+    try { requestedDni = new URLSearchParams(window.location.search).get('dni'); } catch { /* sin URL */ }
+    personaSeleccionada = null;
+    syncUrlState();
 
     if (abortCtrl) abortCtrl.abort();
-    abortCtrl = new AbortController();
+    const controller = new AbortController();
+    abortCtrl = controller;
     const isNombre = searchMode === 'nombre';
-    const searchStartTime = performance.now();
     if (!isNombre) { setLoading(true); skeleton(); }
     emptyState.classList.add('hidden');
     resultsSection.classList.add('visible');
@@ -1726,7 +2464,7 @@
       let data;
       if (searchMode === 'dni') {
         const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(q)}`, {
-          signal: abortCtrl.signal, headers: apiHeaders(),
+          signal: controller.signal, headers: apiHeaders(),
         });
         if (res.status === 404) {
           data = []; setEstado('DNI no encontrado en el padrón', 'error'); toast('DNI no encontrado', 'warn');
@@ -1738,7 +2476,7 @@
         }
       } else {
         const res = await apiFetch(`${API_BASE}/buscar?q=${encodeURIComponent(q)}&limit=${limiteSelect.value}`, {
-          signal: abortCtrl.signal, headers: apiHeaders(),
+          signal: controller.signal, headers: apiHeaders(),
         });
         if (!res.ok) {
           const body = await res.json().catch(() => null);
@@ -1747,32 +2485,53 @@
         data = await res.json();
       }
 
+      // Una búsqueda más reciente ya reemplazó a esta: descarta la respuesta.
+      if (abortCtrl !== controller) return;
+
       resultados = data;
       renderResults(data);
-      setEstado(`${data.length} persona${data.length !== 1 ? 's' : ''} encontrada${data.length !== 1 ? 's' : ''}`, 'ok');
+      if (!data.length && searchMode === 'dni') {
+        setEstado('DNI no encontrado en el padrón', 'error');
+      } else {
+        setEstado(`${data.length} persona${data.length !== 1 ? 's' : ''} encontrada${data.length !== 1 ? 's' : ''}`, 'ok');
+      }
 
       // Animated badge count
       const oldCount = parseInt(badgeCount.textContent) || 0;
       animateValue(badgeCount, oldCount, data.length, 400);
       bumpBadge(badgeCount);
 
-      btnExportar.classList.remove('hidden');
-      btnExportarJson.classList.remove('hidden');
+      btnExportar.classList.toggle('hidden', data.length === 0);
+      btnExportarJson.classList.toggle('hidden', data.length === 0);
       if (data.length > 0) {
         addRecentSearch(q, searchMode);
-        showDetail(data[0], 0);
+        const requestedIndex = requestedDni
+          ? resultadosVista.findIndex((p) => p.dni === requestedDni)
+          : -1;
+        const index = requestedIndex >= 0 ? requestedIndex : 0;
+        showDetail(resultadosVista[index], index);
         decrementConsultas();
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
+      // Nunca dejes resultados anteriores exportables tras un fallo.
+      resultados = [];
+      resultadosVista = [];
+      resultsList.innerHTML = '';
+      badgeCount.textContent = '0';
+      btnExportar.classList.add('hidden');
+      btnExportarJson.classList.add('hidden');
       if (!e.handled) {
-        resultsList.innerHTML = '';
         setEstado('Error al consultar el servidor', 'error');
         toast('Error de conexión con la API', 'error');
+      } else if (e.msg) {
+        setEstado(e.msg, 'error');
       }
     } finally {
-      if (!isNombre) setLoading(false);
-      abortCtrl = null;
+      if (abortCtrl === controller) {
+        setLoading(false);
+        abortCtrl = null;
+      }
     }
   }
 
@@ -1826,9 +2585,9 @@
   }
 
   btnExportar.addEventListener('click', () => {
-    if (!resultados.length) return;
+    if (!resultadosVista.length) return;
     const h = ['DNI', 'Dígito RUC', 'Nombres', 'Ape. Paterno', 'Ape. Materno', 'Sexo', 'Estado Civil', 'Fecha Nacimiento', 'Edad', 'Padre', 'Madre', 'Dirección', 'Ubigeo Dom', 'Ubigeo Nac', 'Fch Emisión', 'Fch Inscripción', 'Fch Caducidad'];
-    const r = resultados.map((p) => [
+    const r = resultadosVista.map((p) => [
       p.dni || '', p.dig_ruc || '', p.nombres || '', p.ap_pat || '', p.ap_mat || '',
       p.sexo || '', p.est_civil || '', p.fecha_nac || '', p.edad_texto || p.edad_anios || '',
       p.padre || '', p.madre || '', p.direccion || '', p.ubigeo_dir || '', p.ubigeo_nac || '',
@@ -1845,8 +2604,8 @@
   });
 
   btnExportarJson.addEventListener('click', () => {
-    if (!resultados.length) return;
-    const blob = new Blob([JSON.stringify(resultados, null, 2)], { type: 'application/json' });
+    if (!resultadosVista.length) return;
+    const blob = new Blob([JSON.stringify(resultadosVista, null, 2)], { type: 'application/json' });
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob),
       download: `padron_personas_${new Date().toISOString().slice(0, 10)}.json`,
@@ -1857,7 +2616,11 @@
 
   /* ── Quick Search Modal (Ctrl+K) ─────────────────────────── */
   function openQS() {
+    if (!qsModal.classList.contains('open')) lastFocusedQS = document.activeElement;
     qsModal.classList.add('open');
+    qsModal.removeAttribute('inert');
+    qsModal.setAttribute('aria-hidden', 'false');
+    updateBodyScrollLock();
     qsInput.value = '';
     qsResults.innerHTML = '<p class="qs-empty">Escribe para buscar al instante...</p>';
     setTimeout(() => qsInput.focus(), 100);
@@ -1865,7 +2628,11 @@
 
   function closeQS() {
     qsModal.classList.remove('open');
+    updateBodyScrollLock();
     if (qsAbort) qsAbort.abort();
+    if (lastFocusedQS && typeof lastFocusedQS.focus === 'function') lastFocusedQS.focus();
+    qsModal.setAttribute('aria-hidden', 'true');
+    qsModal.setAttribute('inert', '');
   }
 
   async function qsSearch(query) {
@@ -1875,7 +2642,8 @@
       return;
     }
 
-    qsAbort = new AbortController();
+    const controller = new AbortController();
+    qsAbort = controller;
     qsResults.innerHTML = '<div style="padding:32px"><div class="qs-spinner"></div></div>';
     const isDni = /^\d{8}$/.test(query.trim());
 
@@ -1883,19 +2651,20 @@
       let data;
       if (isDni) {
         const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(query.trim())}`, {
-          signal: qsAbort.signal, headers: apiHeaders(),
+          signal: controller.signal, headers: apiHeaders(),
         });
         if (res.status === 404) data = [];
         else if (!res.ok) throw new Error();
         else data = [await res.json()];
       } else {
         const res = await apiFetch(`${API_BASE}/buscar?q=${encodeURIComponent(query)}&limit=6`, {
-          signal: qsAbort.signal, headers: apiHeaders(),
+          signal: controller.signal, headers: apiHeaders(),
         });
         if (!res.ok) throw new Error();
         data = await res.json();
       }
 
+      if (qsAbort !== controller) return;
       if (!data.length) {
         qsResults.innerHTML = '<p class="qs-empty">Sin resultados coincidentes</p>';
         return;
@@ -1919,17 +2688,19 @@
       qsResults.querySelectorAll('.qs-item').forEach((btn, i) => {
         btn.addEventListener('click', () => {
           closeQS();
+          setMode(/^\d{8}$/.test(query.trim()) ? 'dni' : 'nombre');
           resultados = data;
           searchInput.value = query;
           btnClearSearch.classList.add('visible');
           emptyState.classList.add('hidden');
           resultsSection.classList.add('visible');
           renderResults(data);
+          syncUrlState();
           setEstado(`${data.length} resultado${data.length !== 1 ? 's' : ''}`, 'ok');
           badgeCount.textContent = data.length;
           btnExportar.classList.remove('hidden');
           btnExportarJson.classList.remove('hidden');
-          showDetail(data[0], 0);
+          if (resultadosVista.length) showDetail(resultadosVista[0], 0, true);
         });
       });
     } catch (e) {
@@ -1952,34 +2723,70 @@
 
   /* ── Keyboard shortcuts & navigation ─────────────────────── */
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); openQS(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      openQS();
+      return;
+    }
     if (e.key === 'Escape') {
       if (c4Modal && c4Modal.classList.contains('open')) { closeC4Modal(); return; }
-      if (treeModal.classList.contains('open')) { closeTreeModal(); return; }
-      if (qsModal.classList.contains('open')) { closeQS(); return; }
-      if (mobileSheet.classList.contains('open')) { closeMobileSheet(); return; }
+      if (treeModal && treeModal.classList.contains('open')) { closeTreeModal(); return; }
+      if (qsModal && qsModal.classList.contains('open')) { closeQS(); return; }
+      if (mobileSheet && mobileSheet.classList.contains('open')) { closeMobileSheet(); return; }
     }
 
-    // Navegación con flechas en la lista de resultados
-    if (resultados.length > 0 && !qsModal.classList.contains('open')) {
+    const modalOpen = (treeModal && treeModal.classList.contains('open')) ||
+      (c4Modal && c4Modal.classList.contains('open')) ||
+      (qsModal && qsModal.classList.contains('open')) ||
+      (mobileSheet && mobileSheet.classList.contains('open'));
+    if (modalOpen) {
+      if (e.key === 'Tab') trapFocus(e, activeModalElement());
+      return;
+    }
+
+    // Atajos de productividad (sólo fuera de campos de texto).
+    if (!isTypingTarget(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key === '/') {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+        return;
+      }
+      if ((e.key === 't' || e.key === 'T') && personaSeleccionada) {
+        e.preventDefault();
+        openTreeModal(personaSeleccionada.dni);
+        return;
+      }
+      if ((e.key === 'c' || e.key === 'C') && personaSeleccionada) {
+        e.preventDefault();
+        openC4Modal(personaSeleccionada.dni);
+        return;
+      }
+      if (e.key === '?') {
+        e.preventDefault();
+        toast('Atajos: / buscar · ↑↓ navegar · T árbol · C ficha · Ctrl+K búsqueda rápida · Esc cerrar', 'info', { duration: 6500 });
+        return;
+      }
+    }
+
+    // Navegación con flechas en la lista de resultados.
+    if (resultadosVista.length > 0) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-        if (activeTag !== 'input' || document.activeElement === searchInput) {
-          e.preventDefault();
-          if (document.activeElement === searchInput) searchInput.blur();
+        if (isTypingTarget(e.target) && document.activeElement !== searchInput) return;
+        e.preventDefault();
+        if (document.activeElement === searchInput) searchInput.blur();
 
-          let curIdx = resultados.findIndex((p) => personaSeleccionada && p.dni === personaSeleccionada.dni);
-          if (e.key === 'ArrowDown') {
-            curIdx = curIdx < 0 ? 0 : (curIdx + 1) % resultados.length;
-          } else {
-            curIdx = curIdx <= 0 ? resultados.length - 1 : curIdx - 1;
-          }
+        let curIdx = resultadosVista.findIndex((p) => personaSeleccionada && p.dni === personaSeleccionada.dni);
+        if (e.key === 'ArrowDown') {
+          curIdx = curIdx < 0 ? 0 : (curIdx + 1) % resultadosVista.length;
+        } else {
+          curIdx = curIdx <= 0 ? resultadosVista.length - 1 : curIdx - 1;
+        }
 
-          showDetail(resultados[curIdx], curIdx);
-          const items = resultsList.querySelectorAll('.result-item');
-          if (items[curIdx]) {
-            items[curIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          }
+        showResultAtIndex(curIdx);
+        const items = resultsList.querySelectorAll('.result-item, .result-row');
+        if (items[curIdx]) {
+          items[curIdx].scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
         }
       }
     }
@@ -1987,15 +2794,47 @@
 
   window.addEventListener('resize', () => {
     if (window.innerWidth >= 769) {
-      closeMobileSheet();
-      document.body.style.overflow = '';
+      if (mobileSheet && mobileSheet.classList.contains('open')) closeMobileSheet();
+      updateBodyScrollLock();
     }
   });
 
   /* ── Service Worker (PWA) ────────────────────────────────── */
   if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    const showUpdateToast = (registration) => {
+      if (!registration || !registration.waiting) return;
+      toast('Nueva versión disponible. Recarga para actualizar.', 'info', {
+        duration: 15000,
+        actionLabel: 'Actualizar',
+        onAction: () => {
+          swRefreshing = true;
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        },
+      });
+    };
+
+    window.addEventListener('load', async () => {
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+        if (registration.waiting) showUpdateToast(registration);
+        registration.addEventListener('updatefound', () => {
+          const worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateToast(registration);
+            }
+          });
+        });
+      } catch { /* sin service worker */ }
+    });
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (swRefreshing) {
+        window.location.reload();
+        return;
+      }
+      // Primera instalación: no recargar, el cache ya está listo.
     });
   }
 
@@ -2140,6 +2979,8 @@
       await apiFetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
     } catch { /* la sesión local se limpia igualmente */ }
     clearAuth();
+    try { localStorage.removeItem('recent_searches'); } catch { /* sin almacenamiento */ }
+    renderRecentSearches();
     showLoginScreen();
   });
 
@@ -2288,6 +3129,11 @@
     } else {
       setMode('dni');
     }
+
+    const initialView = urlParams.get('view');
+    if (initialView === 'table' || initialView === 'list') resultsView = initialView;
+    updateResultsControls();
+    applyDetailWidth(detailWidth);
 
     checkConnection();
     setInterval(checkConnection, 30000);

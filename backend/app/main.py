@@ -58,14 +58,26 @@ async def security_and_tracing_middleware(request: Request, call_next) -> Respon
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; img-src 'self' data:; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; "
-        "script-src 'self' 'unsafe-inline'; connect-src 'self'"
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "script-src 'self'; worker-src 'self'; manifest-src 'self'; "
+        "connect-src 'self'; object-src 'none'; frame-ancestors 'none'; "
+        "base-uri 'self'; form-action 'self'"
     )
+    response.headers["Server-Timing"] = f"app;dur={duration_ms}"
     if COOKIE_SECURE:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    # Las respuestas con datos personales nunca deben quedar en cachés
+    # compartidas, proxies ni en el historial de recursos del navegador.
+    path = request.url.path
+    if path.startswith(("/persona", "/buscar", "/scraping", "/api/")):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
 
     # Log estructurado con correlation id y duración
     if not request.url.path.startswith("/static"):
@@ -87,7 +99,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["Retry-After", "X-Request-ID"],
+    expose_headers=["Retry-After", "X-Request-ID", "Server-Timing"],
 )
 
 app.include_router(auth.router)

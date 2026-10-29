@@ -154,3 +154,17 @@ def test_c4_persona_encontrada(client, monkeypatch):
     assert body["persona"]["dni"] == "12345678"
 
 
+def test_headers_privacidad_y_timing(client):
+    res = client.get("/persona/123")
+    assert res.status_code == 400
+    assert res.headers["cache-control"].startswith("no-store")
+    assert res.headers["pragma"] == "no-cache"
+    assert "server-timing" in res.headers
+    assert "app;dur=" in res.headers["server-timing"]
+    csp = res.headers["content-security-policy"]
+    assert "script-src 'self'" in csp
+    assert "script-src 'self' 'unsafe-inline'" not in csp
+    assert "object-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "base-uri 'self'" in csp
+    assert "form-action 'self'" in csp

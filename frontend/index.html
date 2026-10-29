@@ -11,21 +11,13 @@
   <meta property="og:type" content="website">
   <title>Buscador de Personas</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=2.3">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css?v=2.4">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
-  <script>
-    (function() {
-      const saved = localStorage.getItem('theme');
-      if (saved === 'light' || (!saved && window.matchMedia('(prefers-color-scheme: light)').matches)) {
-        document.documentElement.setAttribute('data-theme', 'light');
-      } else {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      }
-    })();
-  </script>
+  <script src="theme.js"></script>
 </head>
 <body class="grid-bg">
 
@@ -151,7 +143,7 @@
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <!-- Quick Search Modal (Ctrl+K) -->
-  <div id="quick-search-modal" class="qs-overlay" role="dialog" aria-label="Búsqueda rápida">
+  <div id="quick-search-modal" class="qs-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Búsqueda rápida">
     <div class="qs-backdrop" data-close-modal></div>
     <div class="qs-panel" id="qs-panel">
       <div class="qs-header">
@@ -167,13 +159,16 @@
 
   <!-- Mobile Detail Sheet -->
   <div id="mobile-sheet-overlay" class="sheet-overlay" data-close-sheet></div>
-  <div id="mobile-sheet" class="sheet">
+  <div id="mobile-sheet" class="sheet" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Detalle de persona">
     <div class="sheet__handle"></div>
+    <button type="button" class="sheet__close" data-close-sheet aria-label="Cerrar detalle">
+      <span class="material-symbols-outlined" aria-hidden="true">close</span>
+    </button>
     <div id="mobile-sheet-content"></div>
   </div>
 
   <!-- Family Tree Interactive Modal -->
-  <div id="tree-modal" class="tree-overlay" role="dialog" aria-label="Árbol Genealógico Interactivo">
+  <div id="tree-modal" class="tree-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Árbol Genealógico Interactivo">
     <div class="tree-backdrop" data-close-tree></div>
     <div class="tree-panel">
       <div class="tree-panel__header">
@@ -190,6 +185,14 @@
 
         <!-- Interactive Graph Controls -->
         <div class="tree-panel__actions">
+          <div class="view-switch tree-view-switch" role="group" aria-label="Vista del árbol">
+            <button id="btn-tree-view-graph" class="view-switch__btn" title="Vista de grafo" aria-label="Vista de grafo" aria-pressed="false">
+              <span class="material-symbols-outlined">account_tree</span>
+            </button>
+            <button id="btn-tree-view-list" class="view-switch__btn" title="Vista de lista por pestañas" aria-label="Vista de lista por pestañas" aria-pressed="false">
+              <span class="material-symbols-outlined">view_list</span>
+            </button>
+          </div>
           <div class="tree-zoom-controls">
             <button id="btn-tree-zoom-out" class="btn-tree-ctrl" title="Alejar (Zoom -)">
               <span class="material-symbols-outlined">remove</span>
@@ -226,7 +229,7 @@
   </div>
 
   <!-- Ficha de referencia (no oficial) Modal -->
-  <div id="c4-modal" class="c4-overlay" role="dialog" aria-label="Ficha de referencia — datos del padrón">
+  <div id="c4-modal" class="c4-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Ficha de referencia — datos del padrón">
     <div class="c4-backdrop" data-close-c4></div>
     <div class="c4-panel">
       <div class="c4-panel__header">
@@ -385,7 +388,19 @@
           <h2>Resultados Encontrados</h2>
           <span id="badge-count" class="badge-count">0</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="results-header__actions">
+          <div class="view-switch" role="group" aria-label="Vista de resultados">
+            <button id="btn-view-list" class="view-switch__btn view-switch__btn--active" title="Vista de tarjetas" aria-label="Vista de tarjetas" aria-pressed="true">
+              <span class="material-symbols-outlined">view_agenda</span>
+            </button>
+            <button id="btn-view-table" class="view-switch__btn" title="Vista de tabla" aria-label="Vista de tabla" aria-pressed="false">
+              <span class="material-symbols-outlined">table_rows</span>
+            </button>
+          </div>
+          <button id="btn-toggle-detail" class="btn-outline btn-toggle-detail" title="Mostrar u ocultar el panel de detalle" aria-label="Mostrar u ocultar el panel de detalle" aria-pressed="true">
+            <span class="material-symbols-outlined">right_panel_close</span>
+            <span class="btn-toggle-detail__label">Detalle</span>
+          </button>
           <button id="btn-exportar" class="btn-outline hidden" title="Exportar resultados a formato CSV">
             <span class="material-symbols-outlined">table_view</span>
             <span>CSV</span>
@@ -397,12 +412,14 @@
         </div>
       </div>
 
-      <p id="estado-texto" class="status-text"></p>
+      <p id="estado-texto" class="status-text" role="status" aria-live="polite"></p>
 
-      <div class="results-grid">
+      <div class="results-grid" id="results-grid">
         <div class="results-list-col">
           <div id="results-list" class="results-list"></div>
         </div>
+
+        <div id="detail-resizer" class="detail-resizer" role="separator" aria-orientation="vertical" aria-label="Ajustar ancho del panel de detalle" aria-valuemin="320" aria-valuemax="640" aria-valuenow="430" tabindex="0" title="Arrastra para ajustar el panel"></div>
 
         <!-- Detail Panel (Desktop) -->
         <aside id="detail-panel" class="detail-panel" aria-label="Detalle de persona">
@@ -447,6 +464,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=2.3"></script>
+  <script src="app.js?v=2.4"></script>
 </body>
 </html>

@@ -17,7 +17,10 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 - **Caché opcional con Redis**: si no hay `REDIS_URL`, se usa caché en memoria.
 - **Ficha C4 de referencia**: claramente etiquetada como no oficial, sin logotipos ni leyendas de RENIEC.
 - **Exportación CSV/JSON** con protección contra inyección de fórmulas.
-- **PWA** con Service Worker y atajos de teclado.
+- **Interfaz productiva**: vista de tarjetas o tabla ordenable, panel de detalle redimensionable y colapsable, estado compartible en la URL y atajos de teclado (`/`, `↑`/`↓`, `T`, `C`, `Ctrl+K`, `?`).
+- **Árbol familiar eficiente**: render progresivo por lotes, caché de cinco minutos, vista de grafo o lista por pestañas y controles táctiles de 44 px.
+- **Rendimiento móvil**: tipografía Inter local, `content-visibility`, `100dvh`, áreas seguras y animaciones desactivadas con `prefers-reduced-motion`.
+- **PWA** con Service Worker stale-while-revalidate, aviso de actualización y sin caché de respuestas personales o autenticadas.
 
 ---
 
@@ -123,7 +126,7 @@ El frontend puede servirse con Nginx o con cualquier servidor estático apuntand
 
 ```bash
 cd backend
-pytest -q          # 58 pruebas
+pytest -q          # 59 pruebas
 ruff check .
 ```
 
@@ -159,7 +162,9 @@ La API acepta autenticación por cookie (`bp_access`), por `Authorization: Beare
 - Cookies `HttpOnly`, `SameSite=Strict` y `Secure` cuando se sirve por HTTPS.
 - API keys sin rol de administrador.
 - Consultas SQL parametrizadas y errores internos sin trazas expuestas.
-- CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` y HSTS (con HTTPS).
+- CSP estricta sin scripts inline, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` y HSTS (con HTTPS).
+- `Cache-Control: no-store` en respuestas con datos personales, de búsqueda y autenticación.
+- `Server-Timing` y `X-Request-ID` para medir y correlacionar latencia.
 
 ---
 
