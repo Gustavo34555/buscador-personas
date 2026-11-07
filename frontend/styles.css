@@ -3262,6 +3262,52 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   white-space: nowrap; border: 0;
 }
 
+/* Enlace de salto: visible sólo al recibir foco con teclado. */
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 10000;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transform: translateY(calc(-100% - 20px));
+  transition: transform 0.18s var(--ease);
+}
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+body.login-visible { overflow: hidden; }
+.login-visible .skip-link { display: none; }
+
+/* Panel de administración: foco visible y controles táctiles cómodos. */
+.admin-panel__close {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+}
+.admin-panel__close:focus-visible {
+  outline: 2px solid var(--accent-light);
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .admin-form input,
+  .btn-crear-usuario {
+    min-height: 44px;
+  }
+  .btn-crear-usuario { justify-content: center; }
+  .btn-admin-action {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+
 /* ── Barra de acciones de resultados ────────────────────────────────── */
 .results-header__actions {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

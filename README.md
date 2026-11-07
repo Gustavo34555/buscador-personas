@@ -17,7 +17,8 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 - **Caché opcional con Redis**: si no hay `REDIS_URL`, se usa caché en memoria.
 - **Ficha C4 de referencia**: claramente etiquetada como no oficial, sin logotipos ni leyendas de RENIEC.
 - **Exportación CSV/JSON** con protección contra inyección de fórmulas.
-- **Interfaz productiva**: vista de tarjetas o tabla ordenable, panel de detalle redimensionable y colapsable, estado compartible en la URL y atajos de teclado (`/`, `↑`/`↓`, `T`, `C`, `Ctrl+K`, `?`).
+- **Interfaz productiva**: vista de tarjetas o tabla ordenable, panel de detalle redimensionable y colapsable, estado compartible en la URL, enlaces directos por DNI (`?dni=12345678`), historial real del navegador y atajos de teclado (`/`, `↑`/`↓`, `T`, `C`, `Ctrl+K`, `?`).
+- **Accesibilidad**: enlace para saltar a la búsqueda, foco visible, diálogos con `aria-modal`/`inert`, cierre con `Escape`, trampa de foco y panel de administración operable por teclado.
 - **Árbol familiar eficiente**: render progresivo por lotes, caché de cinco minutos, vista de grafo o lista por pestañas y controles táctiles de 44 px.
 - **Rendimiento móvil**: tipografía Inter local, `content-visibility`, `100dvh`, áreas seguras y animaciones desactivadas con `prefers-reduced-motion`.
 - **PWA** con Service Worker stale-while-revalidate, aviso de actualización y sin caché de respuestas personales o autenticadas.

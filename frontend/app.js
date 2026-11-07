@@ -52,6 +52,8 @@
 
   /* ── DOM refs ────────────────────────────────────────────── */
   const $ = (id) => document.getElementById(id);
+  const appHeader         = document.querySelector('.header');
+  const appMain           = document.querySelector('.main');
   const searchInput       = $('search-input');
   const btnClearSearch    = $('btn-clear-search');
   const modeDni           = $('mode-dni');
@@ -170,10 +172,13 @@
   let lastFocusedElement = null;
   let lastFocusedC4 = null;
   let lastFocusedQS = null;
+  let lastFocusedAdmin = null;
 
   function updateBodyScrollLock() {
+    const adminEl = document.getElementById('admin-overlay');
     const anyOpen = [treeModal, c4Modal, qsModal, mobileSheet]
-      .some((el) => el && el.classList.contains('open'));
+      .some((el) => el && el.classList.contains('open')) ||
+      (adminEl && adminEl.classList.contains('show'));
     document.body.style.overflow = anyOpen ? 'hidden' : '';
   }
 
@@ -207,6 +212,8 @@
     if (treeModal && treeModal.classList.contains('open')) return treeModal.querySelector('.tree-panel');
     if (qsModal && qsModal.classList.contains('open')) return qsModal.querySelector('.qs-panel');
     if (mobileSheet && mobileSheet.classList.contains('open')) return mobileSheet;
+    const adminEl = document.getElementById('admin-overlay');
+    if (adminEl && adminEl.classList.contains('show')) return adminEl.querySelector('.admin-panel');
     return null;
   }
 
@@ -453,7 +460,7 @@
   renderRecentSearches();
 
   /* ── Mode switching ──────────────────────────────────────── */
-  function setMode(mode) {
+  function setMode(mode, focus = true) {
     searchMode = mode;
     searchInput.placeholder = mode === 'dni' ? 'Escribe un DNI (8 dígitos)...' : 'Escribe apellidos o nombres completos...';
     if (mode === 'dni') {
@@ -476,7 +483,7 @@
       modeGlider.classList.toggle('mode-glider--nombre', mode === 'nombre');
     }
     limitRow.classList.toggle('visible', mode === 'nombre');
-    searchInput.focus();
+    if (focus) searchInput.focus();
   }
 
   modeDni.addEventListener('click', () => { setMode('dni'); if (searchInput.value.trim()) search(); });
@@ -569,7 +576,7 @@
     const ubigeoDir = p.ubigeo_dir || p.ubigeo_nac || '-';
     const anim = i < 8 ? ` slide-up stagger-${i + 1}` : '';
 
-    return `<div class="result-item${anim}${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" role="button" tabindex="0" aria-expanded="false" aria-label="${escHtml(n || 'Persona')}, DNI ${escHtml(p.dni || '-')}">
+    return `<div class="result-item${anim}${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" role="button" tabindex="0" aria-expanded="${active ? 'true' : 'false'}" aria-label="${escHtml(n || 'Persona')}, DNI ${escHtml(p.dni || '-')}">
       <div class="result-item__inner">
         <div class="result-item__avatar ${avatarGenderClass}" title="${g === 'F' ? 'Femenino' : 'Masculino'}">
           <span class="result-avatar-text">${escHtml(iniciales)}</span>
@@ -641,7 +648,7 @@
       const g = sexoLetra(p.sexo);
       const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-row--active' : '';
       const iniciales = initialsFor(p);
-      return `<tr class="result-row${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" tabindex="0" role="row" aria-label="${escHtml(n)}, DNI ${escHtml(p.dni || '-')}">
+      return `<tr class="result-row${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" tabindex="0" role="row" aria-selected="${active ? 'true' : 'false'}" aria-label="${escHtml(n)}, DNI ${escHtml(p.dni || '-')}">
         <td class="result-cell--name"><span class="table-avatar" aria-hidden="true">${escHtml(iniciales)}</span>${escHtml(n)}</td>
         <td class="result-cell--dni">${escHtml(p.dni || '-')}</td>
         <td>${p.edad_anios != null ? escHtml(p.edad_anios) + ' años' : '-'}</td>
@@ -732,7 +739,9 @@
         // En vista tabla no hay tarjeta expandible: usa el bottom sheet.
         personaSeleccionada = p;
         resultsList.querySelectorAll('.result-row').forEach((row) => {
-          row.classList.toggle('result-row--active', Number(row.getAttribute('data-index')) === index);
+          const isActive = Number(row.getAttribute('data-index')) === index;
+          row.classList.toggle('result-row--active', isActive);
+          row.setAttribute('aria-selected', isActive ? 'true' : 'false');
         });
         syncUrlState();
         openMobileSheet(buildDetailHTML(p), p);
@@ -2200,20 +2209,23 @@
   }
 
 
-  function showDetail(p, index, expand = false) {
+  function showDetail(p, index, expand = false, options = {}) {
     const token = ++detailRenderToken;
     personaSeleccionada = p;
     if (expand && detailCollapsed && window.innerWidth > 768) setDetailCollapsed(false);
     resultsList.querySelectorAll('.result-item').forEach((el) => {
       const isActive = Number(el.getAttribute('data-index')) === index;
       el.classList.toggle('result-item--active', isActive);
+      el.setAttribute('aria-expanded', isActive ? 'true' : 'false');
     });
     resultsList.querySelectorAll('.result-row').forEach((el) => {
-      el.classList.toggle('result-row--active', Number(el.getAttribute('data-index')) === index);
+      const isActive = Number(el.getAttribute('data-index')) === index;
+      el.classList.toggle('result-row--active', isActive);
+      el.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
 
     const html = buildDetailHTML(p);
-    syncUrlState();
+    if (options.syncUrl !== false) syncUrlState();
 
     if (prefersReducedMotion()) {
       detailContent.innerHTML = html;
@@ -2387,44 +2399,100 @@
   }
 
   /* ── Estado en la URL (compartir y atrás/adelante) ───────── */
-  function syncUrlState() {
+  function syncUrlState(options = {}) {
     try {
       const url = new URL(window.location);
       const q = searchInput.value.trim();
       if (q) url.searchParams.set('q', q);
       else url.searchParams.delete('q');
       url.searchParams.set('mode', searchMode);
-      if (personaSeleccionada && personaSeleccionada.dni) {
-        url.searchParams.set('dni', personaSeleccionada.dni);
-      } else {
-        url.searchParams.delete('dni');
-      }
+      const dni = personaSeleccionada && personaSeleccionada.dni
+        ? personaSeleccionada.dni
+        : null;
+      if (dni) url.searchParams.set('dni', dni);
+      else url.searchParams.delete('dni');
       if (resultsView === 'table') url.searchParams.set('view', 'table');
       else url.searchParams.delete('view');
-      window.history.replaceState({}, '', url);
+
+      const next = url.pathname + url.search + url.hash;
+      const current = window.location.pathname + window.location.search + window.location.hash;
+      const state = { q, mode: searchMode, dni, view: resultsView };
+      // Sólo crea una entrada nueva si la URL realmente cambió.
+      if (options.push && next !== current) {
+        window.history.pushState(state, '', url);
+      } else {
+        window.history.replaceState(state, '', url);
+      }
     } catch { /* URL no disponible */ }
+  }
+
+  function resetSearchView() {
+    if (abortCtrl) {
+      abortCtrl.abort();
+      abortCtrl = null;
+    }
+    clearTimeout(debounce);
+    setLoading(false);
+    personaSeleccionada = null;
+    resultados = [];
+    resultadosVista = [];
+    searchInput.value = '';
+    btnClearSearch.classList.remove('visible');
+    if (dniCounter) {
+      dniCounter.textContent = '0/8';
+      dniCounter.classList.add('hidden');
+      dniCounter.classList.remove('dni-counter--valid');
+    }
+    resultsList.innerHTML = '';
+    resultsSection.classList.remove('visible');
+    emptyState.classList.remove('hidden');
+    badgeCount.textContent = '0';
+    btnExportar.classList.add('hidden');
+    btnExportarJson.classList.add('hidden');
+    detailContent.classList.add('hidden');
+    detailEmpty.classList.remove('hidden');
+    setEstado('Listo para buscar');
   }
 
   function applyUrlState() {
     let params;
     try { params = new URLSearchParams(window.location.search); } catch { return; }
     const mode = params.get('mode');
-    if (mode === 'nombre' || mode === 'dni') setMode(mode);
+    let modeChanged = false;
+    if ((mode === 'nombre' || mode === 'dni') && mode !== searchMode) {
+      setMode(mode, false);
+      modeChanged = true;
+    }
     const view = params.get('view');
     if (view === 'table' || view === 'list') {
       resultsView = view;
       updateResultsControls();
     }
+
     const q = params.get('q');
-    if (q && q !== searchInput.value.trim()) {
-      searchInput.value = q;
-      btnClearSearch.classList.add('visible');
-      search();
+    const dni = params.get('dni');
+    if (!q && !dni) {
+      if (resultados.length || searchInput.value.trim()) resetSearchView();
       return;
     }
+    if (q && (q !== searchInput.value.trim() || modeChanged)) {
+      searchInput.value = q;
+      btnClearSearch.classList.add('visible');
+      search({ pushHistory: false });
+      return;
+    }
+
+    // Enlace directo por DNI sin búsqueda previa (o DNI ajeno a los resultados).
+    if (!q && dni && (!resultados.length || !resultadosVista.some((p) => p.dni === dni))) {
+      setMode('dni', false);
+      searchInput.value = dni;
+      btnClearSearch.classList.add('visible');
+      search({ pushHistory: false });
+      return;
+    }
+
     if (resultados.length) {
       renderResults(resultados);
-      const dni = params.get('dni');
       if (dni) {
         const index = resultadosVista.findIndex((p) => p.dni === dni);
         if (index >= 0) showDetail(resultadosVista[index], index, true);
@@ -2432,11 +2500,39 @@
     }
   }
 
+  // Recupera una búsqueda o un DNI directo desde la URL (también tras login).
+  function runSearchFromUrl() {
+    let params;
+    try { params = new URLSearchParams(window.location.search); } catch { return false; }
+    const q = params.get('q');
+    const dni = params.get('dni');
+    const target = q || dni;
+    if (!target) return false;
+
+    const mode = params.get('mode');
+    if (mode === 'nombre' || mode === 'dni') {
+      setMode(mode, false);
+    } else {
+      setMode(q && !/^\d{8}$/.test(q) ? 'nombre' : 'dni', false);
+    }
+    searchInput.value = target;
+    btnClearSearch.classList.add('visible');
+    if (dniCounter && searchMode === 'dni') {
+      dniCounter.textContent = `${target.length}/8`;
+      dniCounter.classList.toggle('hidden', target.length === 0);
+      dniCounter.classList.toggle('dni-counter--valid', target.length === 8);
+    }
+    search({ pushHistory: false });
+    return true;
+  }
+
   window.addEventListener('popstate', applyUrlState);
 
   /* ── Search ──────────────────────────────────────────────── */
-  async function search() {
+  async function search(options = {}) {
     const q = searchInput.value.trim();
+    const pushHistory = options.pushHistory !== false;
+    const updateUrl = options.updateUrl !== false;
 
     if (searchMode === 'dni') {
       if (!q) { toast('Ingresa un DNI de 8 dígitos', 'warn'); searchInput.focus(); return; }
@@ -2445,11 +2541,20 @@
       if (q.length < 3) { toast('Ingresa al menos 3 caracteres', 'warn'); return; }
     }
 
-    // Conserva el DNI solicitado en la URL antes de limpiar el estado previo.
+    // Conserva el DNI solicitado sólo si la URL corresponde a esta misma
+    // búsqueda; así un enlace directo restaura la persona seleccionada.
     let requestedDni = null;
-    try { requestedDni = new URLSearchParams(window.location.search).get('dni'); } catch { /* sin URL */ }
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlDni = params.get('dni');
+      const urlQ = params.get('q');
+      const sameSearch = urlQ
+        ? urlQ === q
+        : (searchMode === 'dni' && urlDni === q);
+      if (urlDni && sameSearch) requestedDni = urlDni;
+    } catch { /* sin URL */ }
     personaSeleccionada = null;
-    syncUrlState();
+    if (updateUrl) syncUrlState({ push: pushHistory });
 
     if (abortCtrl) abortCtrl.abort();
     const controller = new AbortController();
@@ -2509,7 +2614,7 @@
           ? resultadosVista.findIndex((p) => p.dni === requestedDni)
           : -1;
         const index = requestedIndex >= 0 ? requestedIndex : 0;
-        showDetail(resultadosVista[index], index);
+        showDetail(resultadosVista[index], index, false, { syncUrl: updateUrl });
         decrementConsultas();
       }
     } catch (e) {
@@ -2560,7 +2665,7 @@
       clearTimeout(debounce);
       const q = val.trim();
       if (q.length >= 3) {
-        debounce = setTimeout(() => search(), 350);
+        debounce = setTimeout(() => search({ pushHistory: false, updateUrl: false }), 350);
       }
     }
   });
@@ -2689,13 +2794,15 @@
         btn.addEventListener('click', () => {
           closeQS();
           setMode(/^\d{8}$/.test(query.trim()) ? 'dni' : 'nombre');
+          addRecentSearch(query.trim(), searchMode);
           resultados = data;
           searchInput.value = query;
           btnClearSearch.classList.add('visible');
           emptyState.classList.add('hidden');
           resultsSection.classList.add('visible');
+          personaSeleccionada = null;
           renderResults(data);
-          syncUrlState();
+          syncUrlState({ push: true });
           setEstado(`${data.length} resultado${data.length !== 1 ? 's' : ''}`, 'ok');
           badgeCount.textContent = data.length;
           btnExportar.classList.remove('hidden');
@@ -2733,12 +2840,14 @@
       if (treeModal && treeModal.classList.contains('open')) { closeTreeModal(); return; }
       if (qsModal && qsModal.classList.contains('open')) { closeQS(); return; }
       if (mobileSheet && mobileSheet.classList.contains('open')) { closeMobileSheet(); return; }
+      if (adminOverlay && adminOverlay.classList.contains('show')) { closeAdminPanel(); return; }
     }
 
     const modalOpen = (treeModal && treeModal.classList.contains('open')) ||
       (c4Modal && c4Modal.classList.contains('open')) ||
       (qsModal && qsModal.classList.contains('open')) ||
-      (mobileSheet && mobileSheet.classList.contains('open'));
+      (mobileSheet && mobileSheet.classList.contains('open')) ||
+      (adminOverlay && adminOverlay.classList.contains('show'));
     if (modalOpen) {
       if (e.key === 'Tab') trapFocus(e, activeModalElement());
       return;
@@ -2904,14 +3013,40 @@
 
   function showLoginScreen() {
     clearAuth();
-    if (adminOverlay) adminOverlay.classList.remove('show');
-    if (btnOpenAdmin) btnOpenAdmin.classList.add('hidden');
-    if (loginOverlay) loginOverlay.classList.remove('hidden');
+    if (loginError) loginError.classList.remove('show');
+    if (loginPass) {
+      loginPass.value = '';
+      loginPass.type = 'password';
+    }
+    closeAdminPanel({ restoreFocus: false });
+    if (c4Modal && c4Modal.classList.contains('open')) closeC4Modal();
+    if (treeModal && treeModal.classList.contains('open')) closeTreeModal();
+    if (qsModal && qsModal.classList.contains('open')) closeQS();
+    if (mobileSheet && mobileSheet.classList.contains('open')) closeMobileSheet();
+    if (btnOpenAdmin) {
+      btnOpenAdmin.classList.add('hidden');
+      btnOpenAdmin.setAttribute('aria-expanded', 'false');
+    }
+    if (loginOverlay) {
+      loginOverlay.classList.remove('hidden');
+      loginOverlay.removeAttribute('inert');
+      loginOverlay.setAttribute('aria-hidden', 'false');
+    }
+    document.body.classList.add('login-visible');
+    if (appHeader) appHeader.setAttribute('inert', '');
+    if (appMain) appMain.setAttribute('inert', '');
     if (loginUser) loginUser.focus();
   }
 
   function hideLoginScreen() {
-    loginOverlay.classList.add('hidden');
+    if (loginOverlay) {
+      loginOverlay.classList.add('hidden');
+      loginOverlay.setAttribute('aria-hidden', 'true');
+      loginOverlay.setAttribute('inert', '');
+    }
+    document.body.classList.remove('login-visible');
+    if (appHeader) appHeader.removeAttribute('inert');
+    if (appMain) appMain.removeAttribute('inert');
     updateConsultasBadge();
     if (_userRol === 'admin') {
       btnOpenAdmin.classList.remove('hidden');
@@ -2955,7 +3090,7 @@
         loginForm.reset();
         if (eyeIcon) eyeIcon.textContent = 'visibility';
         checkConnection();
-        searchInput.focus();
+        if (!runSearchFromUrl()) searchInput.focus();
       } else {
         const err = await res.json().catch(() => ({}));
         loginError.textContent = err.detail || 'Usuario o contraseña incorrectos';
@@ -2985,12 +3120,39 @@
   });
 
   // Admin Panel
-  btnOpenAdmin.addEventListener('click', () => {
+  function openAdminPanel(opener) {
+    if (!adminOverlay || adminOverlay.classList.contains('show')) return;
+    if (document.body.classList.contains('login-visible')) return;
+    lastFocusedAdmin = opener || (document.activeElement && document.activeElement !== document.body
+      ? document.activeElement
+      : btnOpenAdmin);
     adminOverlay.classList.add('show');
+    adminOverlay.removeAttribute('inert');
+    adminOverlay.setAttribute('aria-hidden', 'false');
+    if (btnOpenAdmin) btnOpenAdmin.setAttribute('aria-expanded', 'true');
+    updateBodyScrollLock();
     loadAdminUsers();
-  });
-  btnCloseAdmin.addEventListener('click', () => adminOverlay.classList.remove('show'));
-  adminBackdrop.addEventListener('click', () => adminOverlay.classList.remove('show'));
+    setTimeout(() => { if (btnCloseAdmin) btnCloseAdmin.focus(); }, 60);
+  }
+
+  function closeAdminPanel(options = {}) {
+    if (!adminOverlay) return;
+    const wasOpen = adminOverlay.classList.contains('show');
+    adminOverlay.classList.remove('show');
+    adminOverlay.setAttribute('aria-hidden', 'true');
+    adminOverlay.setAttribute('inert', '');
+    if (btnOpenAdmin) btnOpenAdmin.setAttribute('aria-expanded', 'false');
+    if (!wasOpen) return;
+    updateBodyScrollLock();
+    if (options.restoreFocus !== false && lastFocusedAdmin && typeof lastFocusedAdmin.focus === 'function') {
+      lastFocusedAdmin.focus();
+    }
+    lastFocusedAdmin = null;
+  }
+
+  btnOpenAdmin.addEventListener('click', (event) => openAdminPanel(event.currentTarget));
+  btnCloseAdmin.addEventListener('click', () => closeAdminPanel());
+  adminBackdrop.addEventListener('click', () => closeAdminPanel());
 
   function showAdminMsg(msg, ok) {
     adminMsg.textContent = msg;
@@ -3124,10 +3286,11 @@
     const initialQ = urlParams.get('q');
     const initialMode = urlParams.get('mode');
 
+    // Sin modo explícito, un texto no numérico se interpreta como nombre.
     if (initialMode === 'nombre' || initialMode === 'dni') {
-      setMode(initialMode);
+      setMode(initialMode, false);
     } else {
-      setMode('dni');
+      setMode(initialQ && !/^\d{8}$/.test(initialQ) ? 'nombre' : 'dni', false);
     }
 
     const initialView = urlParams.get('view');
@@ -3147,13 +3310,8 @@
 
     hideLoginScreen();
 
-    if (initialQ) {
-      searchInput.value = initialQ;
-      btnClearSearch.classList.add('visible');
-      search();
-    } else {
-      searchInput.focus();
-    }
+    // Restaura ?q= o ?dni= después de autenticar; si no hay enlace, enfoca.
+    if (!runSearchFromUrl()) searchInput.focus();
   }
 
   bootstrap();

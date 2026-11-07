@@ -13,16 +13,17 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.4">
+  <link rel="stylesheet" href="styles.css?v=2.5">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
   <script src="theme.js"></script>
 </head>
-<body class="grid-bg">
+<body class="grid-bg login-visible">
+  <a class="skip-link" href="#search-input">Saltar a la búsqueda</a>
 
   <!-- Login Overlay -->
-  <div id="login-overlay" class="login-overlay">
+  <div id="login-overlay" class="login-overlay" role="dialog" aria-modal="true" aria-label="Inicio de sesión">
     <div class="login-ambient-blob login-ambient-blob--1"></div>
     <div class="login-ambient-blob login-ambient-blob--2"></div>
     <div class="login-card">
@@ -88,7 +89,7 @@
   </div>
 
   <!-- Admin Panel Modal -->
-  <div id="admin-overlay" class="admin-overlay">
+  <div id="admin-overlay" class="admin-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Panel de Administración">
     <div class="admin-backdrop" id="admin-backdrop"></div>
     <div class="admin-panel">
       <div class="admin-panel__header">
@@ -96,7 +97,7 @@
           <span class="material-symbols-outlined">admin_panel_settings</span>
           <span>Panel de Administración</span>
         </div>
-        <button id="btn-close-admin" class="admin-panel__close" title="Cerrar">
+        <button id="btn-close-admin" class="admin-panel__close" title="Cerrar" aria-label="Cerrar panel de administración">
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
@@ -258,7 +259,7 @@
     </div>
   </div>
 
-  <header class="header">
+  <header class="header" inert>
     <div class="header__inner">
       <div class="header__brand">
         <div class="logo-float">
@@ -297,7 +298,7 @@
             <span class="material-symbols-outlined">database</span>
             <span class="consultas-badge__count" id="consultas-count">—</span>
           </div>
-          <button id="btn-open-admin" class="btn-admin hidden" title="Panel de Administración">
+          <button id="btn-open-admin" class="btn-admin hidden" title="Panel de Administración" aria-haspopup="dialog" aria-controls="admin-overlay" aria-expanded="false">
             <span class="material-symbols-outlined">admin_panel_settings</span>
             <span>Admin</span>
           </button>
@@ -318,7 +319,7 @@
   </header>
 
   <!-- Main Content -->
-  <main class="main">
+  <main class="main" inert>
 
     <!-- Hero + Search -->
     <section class="hero" aria-label="Búsqueda">
@@ -464,6 +465,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=2.4"></script>
+  <script src="app.js?v=2.5"></script>
 </body>
 </html>
