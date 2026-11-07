@@ -70,7 +70,7 @@
           <div class="login-input-wrap">
             <span class="material-symbols-outlined login-input-icon">lock</span>
             <input id="login-pass" type="password" placeholder="Ingresa tu contraseña" required>
-            <button type="button" id="btn-toggle-password" class="btn-toggle-pass" title="Mostrar u ocultar contraseña" tabindex="-1">
+            <button type="button" id="btn-toggle-password" class="btn-toggle-pass" title="Mostrar u ocultar contraseña" aria-label="Mostrar contraseña" aria-pressed="false">
               <span class="material-symbols-outlined" id="eye-icon">visibility</span>
             </button>
           </div>
@@ -79,7 +79,7 @@
           <span>Iniciar Sesión</span>
           <span class="material-symbols-outlined btn-login__icon">arrow_forward</span>
         </button>
-        <div id="login-error" class="login-error"></div>
+        <div id="login-error" class="login-error" role="alert" aria-live="assertive"></div>
       </form>
       <div class="login-card__footer">
         <span class="material-symbols-outlined">verified_user</span>
@@ -107,15 +107,15 @@
             <span class="material-symbols-outlined">person_add</span>
             <span>Crear Nuevo Usuario</span>
           </div>
-          <input id="admin-new-user" type="text" placeholder="Usuario" required>
-          <input id="admin-new-pass" type="password" placeholder="Contraseña" required>
-          <input id="admin-new-consultas" type="number" placeholder="Consultas" value="100" min="0">
+          <input id="admin-new-user" type="text" placeholder="Usuario" aria-label="Nombre de usuario" required>
+          <input id="admin-new-pass" type="password" placeholder="Contraseña" aria-label="Contraseña del nuevo usuario" required>
+          <input id="admin-new-consultas" type="number" placeholder="Consultas" value="100" min="0" aria-label="Consultas disponibles">
           <button id="btn-crear-usuario" class="btn-crear-usuario">
             <span class="material-symbols-outlined">add</span>
             Crear
           </button>
         </div>
-        <div id="admin-msg" class="admin-msg"></div>
+        <div id="admin-msg" class="admin-msg" role="status" aria-live="polite"></div>
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead>
@@ -288,7 +288,7 @@
         </div>
       </div>
       <div class="header__actions">
-        <button id="btn-quick-search" class="btn-quick-search" title="Búsqueda rápida (Ctrl+K)">
+        <button id="btn-quick-search" class="btn-quick-search" title="Búsqueda rápida (Ctrl+K)" aria-keyshortcuts="Control+K">
           <span class="material-symbols-outlined">bolt</span>
           <span class="btn-quick-search__label">Búsqueda rápida</span>
           <kbd>Ctrl+K</kbd>
@@ -302,7 +302,7 @@
             <span class="material-symbols-outlined">admin_panel_settings</span>
             <span>Admin</span>
           </button>
-          <button id="btn-logout" class="btn-logout" title="Cerrar sesión">
+          <button id="btn-logout" class="btn-logout" title="Cerrar sesión" aria-label="Cerrar sesión">
             <span class="material-symbols-outlined">logout</span>
           </button>
         </div>
@@ -338,7 +338,7 @@
         <div class="search-box">
           <span class="material-symbols-outlined search-box__icon">search</span>
           <div class="search-box__input-wrap">
-            <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." inputmode="numeric" pattern="[0-9]*" enterkeyhint="search" autocomplete="off" class="search-box__input" aria-label="Buscar persona">
+            <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." inputmode="numeric" pattern="[0-9]*" enterkeyhint="search" autocomplete="off" class="search-box__input" aria-label="Buscar persona" aria-keyshortcuts="/">
             <span id="dni-counter" class="dni-counter hidden" title="Dígitos de DNI">0/8</span>
             <button id="btn-clear-search" class="btn-clear-input" title="Borrar búsqueda" aria-label="Borrar texto">
               <span class="material-symbols-outlined">close</span>

@@ -424,7 +424,7 @@
       }
       searchHistoryChipsEl.innerHTML = recents.map(r => `
         <button class="history-chip" data-query="${escHtml(r.query)}" data-mode="${escHtml(r.mode)}" title="Buscar ${escHtml(r.query)}">
-          <span>${r.mode === 'dni' ? '🆔' : '👤'}</span>
+          <span aria-hidden="true">${r.mode === 'dni' ? '🆔' : '👤'}</span>
           <span>${escHtml(r.query)}</span>
         </button>
       `).join('');
@@ -921,13 +921,16 @@
             <span class="material-symbols-outlined" style="color:#22c55e">chat</span>
             <span>WhatsApp</span>
           </button>
-          <button class="btn-action" id="btn-tree" title="Ver árbol genealógico">
+          <button class="btn-action" id="btn-tree" title="Ver árbol genealógico" aria-keyshortcuts="T">
             <span class="material-symbols-outlined">account_tree</span>
             <span>Árbol</span>
           </button>
-          <button class="btn-action" id="btn-c4-direct" title="Ver ficha de referencia (no oficial)">
+          <button class="btn-action" id="btn-c4-direct" title="Ver ficha de referencia (no oficial)" aria-keyshortcuts="C">
             <span class="material-symbols-outlined" style="color:#38bdf8">description</span>
             <span>C4</span>
+          </button>
+          <button class="btn-action btn-action--icon" id="btn-copy-link" title="Copiar enlace directo a esta persona" aria-label="Copiar enlace directo a esta persona">
+            <span class="material-symbols-outlined" aria-hidden="true">link</span>
           </button>
         </div>
 
@@ -1071,6 +1074,18 @@
       </div>`;
   }
 
+  function personDeepLink(dni) {
+    try {
+      const url = new URL(window.location.href);
+      url.search = '';
+      url.hash = '';
+      url.searchParams.set('dni', dni);
+      return url.toString();
+    } catch {
+      return `${window.location.origin}${window.location.pathname}?dni=${encodeURIComponent(dni)}`;
+    }
+  }
+
   function bindDetailEvents(container, p) {
     const copyBtn = container.querySelector('#btn-copy-dni');
     if (copyBtn) {
@@ -1138,6 +1153,19 @@
         copyText(fullReport).then(() => {
           toast('Reporte formateado copiado al portapapeles', 'success');
         }).catch(() => toast('Error al copiar reporte', 'error'));
+      });
+    }
+
+    const copyLinkBtn = container.querySelector('#btn-copy-link');
+    if (copyLinkBtn) {
+      copyLinkBtn.addEventListener('click', () => {
+        if (!p.dni) {
+          toast('Esta persona no tiene DNI registrado', 'warn');
+          return;
+        }
+        copyText(personDeepLink(p.dni))
+          .then(() => toast('Enlace directo copiado', 'success'))
+          .catch(() => toast('Error al copiar el enlace', 'error'));
       });
     }
 
@@ -2445,6 +2473,7 @@
     }
     resultsList.innerHTML = '';
     resultsSection.classList.remove('visible');
+    resultsSection.setAttribute('aria-busy', 'false');
     emptyState.classList.remove('hidden');
     badgeCount.textContent = '0';
     btnExportar.classList.add('hidden');
@@ -2563,6 +2592,7 @@
     if (!isNombre) { setLoading(true); skeleton(); }
     emptyState.classList.add('hidden');
     resultsSection.classList.add('visible');
+    resultsSection.setAttribute('aria-busy', 'true');
     setEstado(isNombre ? 'Buscando coincidencias ponderadas...' : 'Consultando padrón nacional...');
 
     try {
@@ -2635,6 +2665,7 @@
     } finally {
       if (abortCtrl === controller) {
         setLoading(false);
+        resultsSection.setAttribute('aria-busy', 'false');
         abortCtrl = null;
       }
     }
@@ -3018,6 +3049,11 @@
       loginPass.value = '';
       loginPass.type = 'password';
     }
+    if (eyeIcon) eyeIcon.textContent = 'visibility';
+    if (btnTogglePassword) {
+      btnTogglePassword.setAttribute('aria-pressed', 'false');
+      btnTogglePassword.setAttribute('aria-label', 'Mostrar contraseña');
+    }
     closeAdminPanel({ restoreFocus: false });
     if (c4Modal && c4Modal.classList.contains('open')) closeC4Modal();
     if (treeModal && treeModal.classList.contains('open')) closeTreeModal();
@@ -3063,6 +3099,8 @@
       const isPass = loginPass.type === 'password';
       loginPass.type = isPass ? 'text' : 'password';
       eyeIcon.textContent = isPass ? 'visibility_off' : 'visibility';
+      btnTogglePassword.setAttribute('aria-pressed', isPass ? 'true' : 'false');
+      btnTogglePassword.setAttribute('aria-label', isPass ? 'Ocultar contraseña' : 'Mostrar contraseña');
     });
   }
 
@@ -3088,7 +3126,12 @@
         applySession(data);
         hideLoginScreen();
         loginForm.reset();
+        loginPass.type = 'password';
         if (eyeIcon) eyeIcon.textContent = 'visibility';
+        if (btnTogglePassword) {
+          btnTogglePassword.setAttribute('aria-pressed', 'false');
+          btnTogglePassword.setAttribute('aria-label', 'Mostrar contraseña');
+        }
         checkConnection();
         if (!runSearchFromUrl()) searchInput.focus();
       } else {
@@ -3185,14 +3228,14 @@
           <td>
             <div class="admin-actions-cell">
               ${!isAdmin ? `
-                <button class="btn-admin-action" data-admin-action="add" data-id="${escHtml(id)}" data-max="${escHtml(max)}" title="Agregar 100 consultas">
-                  <span class="material-symbols-outlined">add_circle</span>
+                <button class="btn-admin-action" data-admin-action="add" data-id="${escHtml(id)}" data-max="${escHtml(max)}" title="Agregar 100 consultas" aria-label="Agregar 100 consultas a ${escHtml(u.username)}">
+                  <span class="material-symbols-outlined" aria-hidden="true">add_circle</span>
                 </button>
-                <button class="btn-admin-action" data-admin-action="toggle" data-id="${escHtml(id)}" data-active="${u.activo ? '1' : '0'}" title="${u.activo ? 'Desactivar' : 'Activar'}">
-                  <span class="material-symbols-outlined">${u.activo ? 'block' : 'check_circle'}</span>
+                <button class="btn-admin-action" data-admin-action="toggle" data-id="${escHtml(id)}" data-active="${u.activo ? '1' : '0'}" title="${u.activo ? 'Desactivar' : 'Activar'}" aria-label="${u.activo ? 'Desactivar' : 'Activar'} a ${escHtml(u.username)}">
+                  <span class="material-symbols-outlined" aria-hidden="true">${u.activo ? 'block' : 'check_circle'}</span>
                 </button>
-                <button class="btn-admin-action btn-admin-action--danger" data-admin-action="delete" data-id="${escHtml(id)}" data-username="${escHtml(u.username)}" title="Eliminar">
-                  <span class="material-symbols-outlined">delete</span>
+                <button class="btn-admin-action btn-admin-action--danger" data-admin-action="delete" data-id="${escHtml(id)}" data-username="${escHtml(u.username)}" title="Eliminar" aria-label="Eliminar a ${escHtml(u.username)}">
+                  <span class="material-symbols-outlined" aria-hidden="true">delete</span>
                 </button>
               ` : '<span style="color:var(--text-5);font-size:11px">—</span>'}
             </div>
