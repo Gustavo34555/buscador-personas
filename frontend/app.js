@@ -2585,6 +2585,9 @@
   }
 
   function applySearchData(data, q, requestedDni, updateUrl, options = {}) {
+    emptyState.classList.add('hidden');
+    resultsSection.classList.add('visible');
+    resultsSection.setAttribute('aria-busy', 'false');
     resultados = data;
     renderResults(data);
     if (!data.length && searchMode === 'dni') {
@@ -2803,6 +2806,41 @@
   });
 
   /* ── Quick Search Modal (Ctrl+K) ─────────────────────────── */
+  let qsData = [];
+  let qsActiveIndex = -1;
+  let qsCharged = false;
+
+  function qsStatus(text) {
+    const status = document.getElementById('qs-status');
+    if (status) status.textContent = text;
+  }
+
+  function setQsActive(index) {
+    const items = Array.from(qsResults.querySelectorAll('.qs-item'));
+    if (!items.length) {
+      qsActiveIndex = -1;
+      qsInput.removeAttribute('aria-activedescendant');
+      return;
+    }
+    qsActiveIndex = Math.max(0, Math.min(index, items.length - 1));
+    items.forEach((item, i) => {
+      const active = i === qsActiveIndex;
+      item.classList.toggle('qs-item--active', active);
+      item.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const active = items[qsActiveIndex];
+    qsInput.setAttribute('aria-activedescendant', active.id);
+    active.scrollIntoView({ block: 'nearest' });
+  }
+
+  function resetQsState() {
+    qsData = [];
+    qsActiveIndex = -1;
+    qsInput.setAttribute('aria-expanded', 'false');
+    qsInput.removeAttribute('aria-activedescendant');
+    qsStatus('');
+  }
+
   function openQS() {
     if (!qsModal.classList.contains('open')) lastFocusedQS = document.activeElement;
     qsModal.classList.add('open');
@@ -2810,6 +2848,10 @@
     qsModal.setAttribute('aria-hidden', 'false');
     updateBodyScrollLock();
     qsInput.value = '';
+    qsCharged = false;
+    resetQsState();
+    qsInput.setAttribute('aria-expanded', 'true');
+    qsResults.setAttribute('aria-busy', 'false');
     qsResults.innerHTML = '<p class="qs-empty">Escribe para buscar al instante...</p>';
     setTimeout(() => qsInput.focus(), 100);
   }
@@ -2821,17 +2863,42 @@
     if (lastFocusedQS && typeof lastFocusedQS.focus === 'function') lastFocusedQS.focus();
     qsModal.setAttribute('aria-hidden', 'true');
     qsModal.setAttribute('inert', '');
+    qsInput.setAttribute('aria-expanded', 'false');
+    qsInput.removeAttribute('aria-activedescendant');
+    // La búsqueda rápida consume cuota en el servidor: sincroniza el badge.
+    if (qsCharged) {
+      qsCharged = false;
+      refreshUserInfo();
+    }
+  }
+
+  function selectQsResult(data, index, query) {
+    const p = data[index];
+    if (!p) return;
+    closeQS();
+    setMode(/^\d{8}$/.test(query.trim()) ? 'dni' : 'nombre');
+    searchInput.value = query;
+    btnClearSearch.classList.add('visible');
+    personaSeleccionada = null;
+    if (searchMode === 'dni') cacheSearchResults(searchCacheKey(query), data);
+    applySearchData(data, query, p.dni, true, { decrement: false });
   }
 
   async function qsSearch(query) {
     if (qsAbort) qsAbort.abort();
     if (!query || query.length < 3) {
+      qsData = [];
+      qsActiveIndex = -1;
+      qsInput.removeAttribute('aria-activedescendant');
+      qsStatus('');
+      qsResults.setAttribute('aria-busy', 'false');
       qsResults.innerHTML = '<p class="qs-empty">Mínimo 3 caracteres...</p>';
       return;
     }
 
     const controller = new AbortController();
     qsAbort = controller;
+    qsResults.setAttribute('aria-busy', 'true');
     qsResults.innerHTML = '<div style="padding:32px"><div class="qs-spinner"></div></div>';
     const isDni = /^\d{8}$/.test(query.trim());
 
@@ -2848,22 +2915,41 @@
         const res = await apiFetch(`${API_BASE}/buscar?q=${encodeURIComponent(query)}&limit=6`, {
           signal: controller.signal, headers: apiHeaders(),
         });
+        if (res.status === 403) {
+          const body = await res.json().catch(() => null);
+          if (qsAbort !== controller) return;
+          qsCharged = true;
+          qsResults.setAttribute('aria-busy', 'false');
+          qsResults.innerHTML = `<p class="qs-empty qs-error">${escHtml((body && body.detail) || 'Sin consultas disponibles')}</p>`;
+          qsStatus('Sin consultas disponibles');
+          refreshUserInfo();
+          return;
+        }
         if (!res.ok) throw new Error();
         data = await res.json();
       }
 
       if (qsAbort !== controller) return;
+      qsCharged = true;
+      qsResults.setAttribute('aria-busy', 'false');
       if (!data.length) {
+        qsData = [];
+        qsActiveIndex = -1;
+        qsInput.removeAttribute('aria-activedescendant');
         qsResults.innerHTML = '<p class="qs-empty">Sin resultados coincidentes</p>';
+        qsStatus('Sin resultados');
         return;
       }
 
+      qsData = data;
+      qsActiveIndex = -1;
+      qsInput.removeAttribute('aria-activedescendant');
       qsResults.innerHTML = data.map((p, i) => {
         const n = nombre(p);
         const g = sexoLetra(p.sexo);
-        return `<button class="qs-item" data-i="${i}">
+        return `<button type="button" class="qs-item" id="qs-opt-${i}" role="option" aria-selected="false" data-i="${i}">
           <div class="qs-item__avatar">
-            <span class="material-symbols-outlined">${g === 'F' ? 'woman' : 'person'}</span>
+            <span class="material-symbols-outlined" aria-hidden="true">${g === 'F' ? 'woman' : 'person'}</span>
           </div>
           <div class="qs-item__body">
             <p class="qs-item__name">${escHtml(n || '-')}</p>
@@ -2873,29 +2959,16 @@
         </button>`;
       }).join('');
 
+      qsStatus(`${data.length} resultado${data.length !== 1 ? 's' : ''}. Usa flechas para navegar y Enter para abrir.`);
       qsResults.querySelectorAll('.qs-item').forEach((btn, i) => {
-        btn.addEventListener('click', () => {
-          closeQS();
-          setMode(/^\d{8}$/.test(query.trim()) ? 'dni' : 'nombre');
-          addRecentSearch(query.trim(), searchMode);
-          resultados = data;
-          searchInput.value = query;
-          btnClearSearch.classList.add('visible');
-          emptyState.classList.add('hidden');
-          resultsSection.classList.add('visible');
-          personaSeleccionada = null;
-          renderResults(data);
-          syncUrlState({ push: true });
-          setEstado(`${data.length} resultado${data.length !== 1 ? 's' : ''}`, 'ok');
-          badgeCount.textContent = data.length;
-          btnExportar.classList.remove('hidden');
-          btnExportarJson.classList.remove('hidden');
-          if (resultadosVista.length) showDetail(resultadosVista[0], 0, true);
-        });
+        btn.addEventListener('click', () => selectQsResult(data, i, query));
       });
     } catch (e) {
       if (e.name === 'AbortError') return;
+      if (qsAbort !== controller) return;
+      qsResults.setAttribute('aria-busy', 'false');
       qsResults.innerHTML = '<p class="qs-empty qs-error">Error de conexión</p>';
+      qsStatus('Error de conexión');
     }
   }
 
@@ -2904,11 +2977,31 @@
 
   qsInput.addEventListener('input', (e) => {
     clearTimeout(qsTimer);
+    qsActiveIndex = -1;
+    qsInput.removeAttribute('aria-activedescendant');
     qsTimer = setTimeout(() => qsSearch(e.target.value.trim()), 300);
   });
   qsInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeQS();
-    if (e.key === 'Enter') { clearTimeout(qsTimer); qsSearch(qsInput.value.trim()); }
+    if (e.key === 'Escape') { closeQS(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!qsData.length) return;
+      e.preventDefault();
+      const delta = e.key === 'ArrowDown' ? 1 : -1;
+      const next = qsActiveIndex < 0
+        ? (delta > 0 ? 0 : qsData.length - 1)
+        : (qsActiveIndex + delta + qsData.length) % qsData.length;
+      setQsActive(next);
+      return;
+    }
+    if (e.key === 'Enter') {
+      clearTimeout(qsTimer);
+      if (qsActiveIndex >= 0 && qsData[qsActiveIndex]) {
+        e.preventDefault();
+        selectQsResult(qsData, qsActiveIndex, qsInput.value.trim());
+        return;
+      }
+      qsSearch(qsInput.value.trim());
+    }
   });
 
   /* ── Keyboard shortcuts & navigation ─────────────────────── */

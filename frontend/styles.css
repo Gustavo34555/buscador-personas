@@ -1175,7 +1175,9 @@ img, svg { display: block; max-width: 100%; }
   padding: 12px 14px; border-radius: var(--radius);
   text-align: left; transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.2s, opacity 0.2s;
 }
-.qs-item:hover { background: rgba(255, 255, 255, 0.05); }
+.qs-item:hover,
+.qs-item--active { background: var(--surface-hover); }
+.qs-item--active { outline: 1px solid var(--border-hover); }
 .qs-item__avatar {
   width: 38px; height: 38px; border-radius: 10px;
   background: var(--accent-dim);

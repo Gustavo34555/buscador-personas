@@ -78,6 +78,15 @@ async def security_and_tracing_middleware(request: Request, call_next) -> Respon
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+    elif request.query_params.get("v") and path.endswith((".css", ".js")):
+        # Assets con versión en la URL: cacheables de forma inmutable.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith("/fonts/") or path.endswith((".woff2", ".woff", ".svg", ".png", ".ico")):
+        response.headers["Cache-Control"] = "public, max-age=604800"
+    else:
+        # El shell HTML y el service worker deben revalidarse para recibir
+        # actualizaciones, incluso si no hay Nginx delante de FastAPI.
+        response.headers["Cache-Control"] = "no-cache"
 
     # Log estructurado con correlation id y duración
     if not request.url.path.startswith("/static"):

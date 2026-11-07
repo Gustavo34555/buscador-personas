@@ -168,3 +168,21 @@ def test_headers_privacidad_y_timing(client):
     assert "frame-ancestors 'none'" in csp
     assert "base-uri 'self'" in csp
     assert "form-action 'self'" in csp
+
+
+def test_cache_headers_estaticos(client):
+    root = client.get("/")
+    assert root.status_code == 200
+    assert root.headers["cache-control"] == "no-cache"
+
+    versioned = client.get("/styles.css", params={"v": "2.6"})
+    assert versioned.status_code == 200
+    assert versioned.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    font = client.get("/fonts/inter-latin.woff2")
+    assert font.status_code == 200
+    assert font.headers["cache-control"] == "public, max-age=604800"
+
+    service_worker = client.get("/sw.js")
+    assert service_worker.status_code == 200
+    assert service_worker.headers["cache-control"] == "no-cache"

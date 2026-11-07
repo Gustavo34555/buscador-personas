@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.5">
+  <link rel="stylesheet" href="styles.css?v=2.6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
@@ -62,14 +62,14 @@
           <label for="login-user">Usuario</label>
           <div class="login-input-wrap">
             <span class="material-symbols-outlined login-input-icon">person</span>
-            <input id="login-user" type="text" placeholder="Ingresa tu usuario" required autofocus>
+            <input id="login-user" type="text" placeholder="Ingresa tu usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
           </div>
         </div>
         <div class="login-field">
           <label for="login-pass">Contraseña</label>
           <div class="login-input-wrap">
             <span class="material-symbols-outlined login-input-icon">lock</span>
-            <input id="login-pass" type="password" placeholder="Ingresa tu contraseña" required>
+            <input id="login-pass" type="password" placeholder="Ingresa tu contraseña" autocomplete="current-password" required>
             <button type="button" id="btn-toggle-password" class="btn-toggle-pass" title="Mostrar u ocultar contraseña" aria-label="Mostrar contraseña" aria-pressed="false">
               <span class="material-symbols-outlined" id="eye-icon">visibility</span>
             </button>
@@ -149,12 +149,13 @@
     <div class="qs-panel" id="qs-panel">
       <div class="qs-header">
         <span class="material-symbols-outlined">search</span>
-        <input id="quick-search-input" type="text" placeholder="DNI o nombre completo..." autocomplete="off" aria-label="Búsqueda rápida">
+        <input id="quick-search-input" type="text" placeholder="DNI o nombre completo..." autocomplete="off" role="combobox" aria-label="Búsqueda rápida" aria-expanded="false" aria-controls="quick-search-results" aria-autocomplete="list" aria-describedby="qs-status">
         <kbd>ESC</kbd>
       </div>
-      <div id="quick-search-results" class="qs-results">
+      <div id="quick-search-results" class="qs-results" role="listbox" aria-label="Resultados de búsqueda rápida" aria-busy="false">
         <p class="qs-empty">Escribe al menos 3 caracteres para buscar...</p>
       </div>
+      <p id="qs-status" class="sr-only" role="status" aria-live="polite"></p>
     </div>
   </div>
 
@@ -465,6 +466,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=2.5"></script>
+  <script src="app.js?v=2.6"></script>
 </body>
 </html>
