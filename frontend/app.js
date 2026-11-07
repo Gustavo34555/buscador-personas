@@ -159,6 +159,11 @@
   let detailRenderToken = 0;
   let swRefreshing = false;
 
+  // Búsquedas: caché en memoria para atrás/adelante sin repetir consultas.
+  const SEARCH_CACHE_TTL = 5 * 60 * 1000;
+  const SEARCH_CACHE_MAX = 40;
+  const searchCache = new Map();
+
   // Árbol: caché, render progresivo y vista lista
   const TREE_CACHE_TTL = 5 * 60 * 1000;
   const treeCache = new Map();
@@ -169,6 +174,7 @@
   let treeNeedsFit = false;
   let treeVisible = { hermanos: 12, hijos: 12, probables: 8, hijosProbables: 8 };
   let treeRequestToken = 0;
+  let c4RequestToken = 0;
   let lastFocusedElement = null;
   let lastFocusedC4 = null;
   let lastFocusedQS = null;
@@ -1417,6 +1423,7 @@
 
   function closeTreeModal() {
     if (!treeModal) return;
+    treeRequestToken += 1;
     treeModal.classList.remove('open');
     updateBodyScrollLock();
     if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
@@ -1990,6 +1997,7 @@
      ═══════════════════════════════════════════════════════════════════ */
   async function openC4Modal(dni) {
     if (!c4Modal) return;
+    const requestToken = ++c4RequestToken;
     if (!c4Modal.classList.contains('open')) lastFocusedC4 = document.activeElement;
 
     c4Modal.classList.add('open');
@@ -2001,19 +2009,23 @@
 
     try {
       const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/c4`, { headers: apiHeaders() });
+      if (requestToken !== c4RequestToken) return;
       if (res.ok) {
         const data = await res.json();
+        if (requestToken !== c4RequestToken) return;
         renderC4Certificate(data);
         refreshUserInfo();
         return;
       }
 
       const body = await res.json().catch(() => null);
+      if (requestToken !== c4RequestToken) return;
       c4Container.innerHTML = `<div class="c4-loading">
         <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">info</span>
         <p>${escHtml((body && body.detail) || 'No se pudo generar la ficha de referencia')}</p>
       </div>`;
     } catch {
+      if (requestToken !== c4RequestToken) return;
       c4Container.innerHTML = `<div class="c4-loading">
         <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">cloud_off</span>
         <p>Error de conexión al generar la ficha</p>
@@ -2023,6 +2035,7 @@
 
   function closeC4Modal() {
     if (!c4Modal) return;
+    c4RequestToken += 1;
     c4Modal.classList.remove('open');
     updateBodyScrollLock();
     if (lastFocusedC4 && typeof lastFocusedC4.focus === 'function') lastFocusedC4.focus();
@@ -2555,6 +2568,49 @@
     return true;
   }
 
+  function searchCacheKey(q) {
+    const limit = searchMode === 'nombre' ? limiteSelect.value : 'dni';
+    return `${searchMode}:${q.toLowerCase()}:${limit}`;
+  }
+
+  function cacheSearchResults(key, data) {
+    if (!Array.isArray(data) || !data.length) return;
+    searchCache.delete(key);
+    searchCache.set(key, { data, ts: Date.now() });
+    while (searchCache.size > SEARCH_CACHE_MAX) {
+      const oldest = searchCache.keys().next().value;
+      if (oldest === undefined) break;
+      searchCache.delete(oldest);
+    }
+  }
+
+  function applySearchData(data, q, requestedDni, updateUrl, options = {}) {
+    resultados = data;
+    renderResults(data);
+    if (!data.length && searchMode === 'dni') {
+      setEstado('DNI no encontrado en el padrón', 'error');
+    } else {
+      setEstado(`${data.length} persona${data.length !== 1 ? 's' : ''} encontrada${data.length !== 1 ? 's' : ''}`, 'ok');
+    }
+
+    // Animated badge count
+    const oldCount = parseInt(badgeCount.textContent) || 0;
+    animateValue(badgeCount, oldCount, data.length, 400);
+    bumpBadge(badgeCount);
+
+    btnExportar.classList.toggle('hidden', data.length === 0);
+    btnExportarJson.classList.toggle('hidden', data.length === 0);
+    if (data.length > 0) {
+      addRecentSearch(q, searchMode);
+      const requestedIndex = requestedDni
+        ? resultadosVista.findIndex((p) => p.dni === requestedDni)
+        : -1;
+      const index = requestedIndex >= 0 ? requestedIndex : 0;
+      showDetail(resultadosVista[index], index, false, { syncUrl: updateUrl });
+      if (options.decrement !== false) decrementConsultas();
+    }
+  }
+
   window.addEventListener('popstate', applyUrlState);
 
   /* ── Search ──────────────────────────────────────────────── */
@@ -2584,6 +2640,24 @@
     } catch { /* sin URL */ }
     personaSeleccionada = null;
     if (updateUrl) syncUrlState({ push: pushHistory });
+
+    // Reutiliza resultados de esta sesión: atrás/adelante y búsquedas
+    // repetidas no vuelven a consumir cuota ni golpean la base de datos.
+    const cacheKey = searchCacheKey(q);
+    const cached = searchCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < SEARCH_CACHE_TTL) {
+      if (abortCtrl) {
+        abortCtrl.abort();
+        abortCtrl = null;
+      }
+      clearTimeout(debounce);
+      setLoading(false);
+      emptyState.classList.add('hidden');
+      resultsSection.classList.add('visible');
+      resultsSection.setAttribute('aria-busy', 'false');
+      applySearchData(cached.data, q, requestedDni, updateUrl, { decrement: false });
+      return;
+    }
 
     if (abortCtrl) abortCtrl.abort();
     const controller = new AbortController();
@@ -2623,30 +2697,8 @@
       // Una búsqueda más reciente ya reemplazó a esta: descarta la respuesta.
       if (abortCtrl !== controller) return;
 
-      resultados = data;
-      renderResults(data);
-      if (!data.length && searchMode === 'dni') {
-        setEstado('DNI no encontrado en el padrón', 'error');
-      } else {
-        setEstado(`${data.length} persona${data.length !== 1 ? 's' : ''} encontrada${data.length !== 1 ? 's' : ''}`, 'ok');
-      }
-
-      // Animated badge count
-      const oldCount = parseInt(badgeCount.textContent) || 0;
-      animateValue(badgeCount, oldCount, data.length, 400);
-      bumpBadge(badgeCount);
-
-      btnExportar.classList.toggle('hidden', data.length === 0);
-      btnExportarJson.classList.toggle('hidden', data.length === 0);
-      if (data.length > 0) {
-        addRecentSearch(q, searchMode);
-        const requestedIndex = requestedDni
-          ? resultadosVista.findIndex((p) => p.dni === requestedDni)
-          : -1;
-        const index = requestedIndex >= 0 ? requestedIndex : 0;
-        showDetail(resultadosVista[index], index, false, { syncUrl: updateUrl });
-        decrementConsultas();
-      }
+      cacheSearchResults(cacheKey, data);
+      applySearchData(data, q, requestedDni, updateUrl);
     } catch (e) {
       if (e.name === 'AbortError') return;
       // Nunca dejes resultados anteriores exportables tras un fallo.
@@ -3042,6 +3094,34 @@
     }
   }
 
+  function clearSensitiveState() {
+    // Al cerrar sesión o expirar la cookie, no dejamos datos personales en
+    // memoria, en el DOM ni en el historial local de búsquedas.
+    searchCache.clear();
+    treeCache.clear();
+    treeData = null;
+    treeRootDni = null;
+    treeRequestToken += 1;
+    c4RequestToken += 1;
+    resultados = [];
+    resultadosVista = [];
+    resetSearchView();
+    if (detailContent) detailContent.innerHTML = '';
+    if (mobileSheetContent) mobileSheetContent.innerHTML = '';
+    if (treeContainer) treeContainer.innerHTML = '';
+    if (treeTitularBadge) treeTitularBadge.textContent = '';
+    if (treeStatsBar) treeStatsBar.innerHTML = '';
+    if (c4Container) c4Container.innerHTML = '';
+    if (qsResults) qsResults.innerHTML = '<p class="qs-empty">Escribe para buscar al instante...</p>';
+    if (adminTableBody) adminTableBody.innerHTML = '';
+    lastFocusedElement = null;
+    lastFocusedC4 = null;
+    lastFocusedQS = null;
+    lastFocusedAdmin = null;
+    try { localStorage.removeItem('recent_searches'); } catch { /* sin almacenamiento */ }
+    renderRecentSearches();
+  }
+
   function showLoginScreen() {
     clearAuth();
     if (loginError) loginError.classList.remove('show');
@@ -3059,6 +3139,7 @@
     if (treeModal && treeModal.classList.contains('open')) closeTreeModal();
     if (qsModal && qsModal.classList.contains('open')) closeQS();
     if (mobileSheet && mobileSheet.classList.contains('open')) closeMobileSheet();
+    clearSensitiveState();
     if (btnOpenAdmin) {
       btnOpenAdmin.classList.add('hidden');
       btnOpenAdmin.setAttribute('aria-expanded', 'false');
@@ -3156,9 +3237,6 @@
     try {
       await apiFetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
     } catch { /* la sesión local se limpia igualmente */ }
-    clearAuth();
-    try { localStorage.removeItem('recent_searches'); } catch { /* sin almacenamiento */ }
-    renderRecentSearches();
     showLoginScreen();
   });
 
