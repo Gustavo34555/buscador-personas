@@ -179,6 +179,11 @@
   const SEARCH_CACHE_MAX = 40;
   const searchCache = new Map();
 
+  // Búsqueda rápida: evita repetir la misma consulta y consumir cuota extra.
+  const QS_CACHE_TTL = 3 * 60 * 1000;
+  const QS_CACHE_MAX = 20;
+  const qsCache = new Map();
+
   // Árbol: caché, render progresivo y vista lista
   const TREE_CACHE_TTL = 5 * 60 * 1000;
   const treeCache = new Map();
@@ -2921,6 +2926,52 @@
     applySearchData(data, query, p.dni, true, { decrement: false });
   }
 
+  function cacheQsResults(key, data) {
+    if (!Array.isArray(data) || !data.length) return;
+    qsCache.delete(key);
+    qsCache.set(key, { data, ts: Date.now() });
+    while (qsCache.size > QS_CACHE_MAX) {
+      const oldest = qsCache.keys().next().value;
+      if (oldest === undefined) break;
+      qsCache.delete(oldest);
+    }
+  }
+
+  function renderQsResults(data, query) {
+    qsResults.setAttribute('aria-busy', 'false');
+    if (!data.length) {
+      qsData = [];
+      qsActiveIndex = -1;
+      qsInput.removeAttribute('aria-activedescendant');
+      qsResults.innerHTML = '<p class="qs-empty">Sin resultados coincidentes</p>';
+      qsStatus('Sin resultados');
+      return;
+    }
+
+    qsData = data;
+    qsActiveIndex = -1;
+    qsInput.removeAttribute('aria-activedescendant');
+    qsResults.innerHTML = data.map((p, i) => {
+      const n = nombre(p);
+      const g = sexoLetra(p.sexo);
+      return `<button type="button" class="qs-item" id="qs-opt-${i}" role="option" aria-selected="false" data-i="${i}">
+        <div class="qs-item__avatar">
+          <span class="material-symbols-outlined" aria-hidden="true">${g === 'F' ? 'woman' : 'person'}</span>
+        </div>
+        <div class="qs-item__body">
+          <p class="qs-item__name">${escHtml(n || '-')}</p>
+          <p class="qs-item__dni">DNI ${escHtml(p.dni || '-')}</p>
+        </div>
+        <span class="qs-item__meta" style="font-size:11px;color:var(--text-5);">${escHtml(p.sexo || '')} &middot; ${p.edad_anios ? p.edad_anios + 'a' : ''}</span>
+      </button>`;
+    }).join('');
+
+    qsStatus(`${data.length} resultado${data.length !== 1 ? 's' : ''}. Usa flechas para navegar y Enter para abrir.`);
+    qsResults.querySelectorAll('.qs-item').forEach((btn, i) => {
+      btn.addEventListener('click', () => selectQsResult(data, i, query));
+    });
+  }
+
   async function qsSearch(query) {
     if (qsAbort) qsAbort.abort();
     if (!query || query.length < 3) {
@@ -2930,6 +2981,14 @@
       qsStatus('');
       qsResults.setAttribute('aria-busy', 'false');
       qsResults.innerHTML = '<p class="qs-empty">Mínimo 3 caracteres...</p>';
+      return;
+    }
+
+    const cacheKey = query.trim().toLowerCase();
+    const cached = qsCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < QS_CACHE_TTL) {
+      qsAbort = null;
+      renderQsResults(cached.data, query);
       return;
     }
 
@@ -2968,38 +3027,8 @@
 
       if (qsAbort !== controller) return;
       qsCharged = true;
-      qsResults.setAttribute('aria-busy', 'false');
-      if (!data.length) {
-        qsData = [];
-        qsActiveIndex = -1;
-        qsInput.removeAttribute('aria-activedescendant');
-        qsResults.innerHTML = '<p class="qs-empty">Sin resultados coincidentes</p>';
-        qsStatus('Sin resultados');
-        return;
-      }
-
-      qsData = data;
-      qsActiveIndex = -1;
-      qsInput.removeAttribute('aria-activedescendant');
-      qsResults.innerHTML = data.map((p, i) => {
-        const n = nombre(p);
-        const g = sexoLetra(p.sexo);
-        return `<button type="button" class="qs-item" id="qs-opt-${i}" role="option" aria-selected="false" data-i="${i}">
-          <div class="qs-item__avatar">
-            <span class="material-symbols-outlined" aria-hidden="true">${g === 'F' ? 'woman' : 'person'}</span>
-          </div>
-          <div class="qs-item__body">
-            <p class="qs-item__name">${escHtml(n || '-')}</p>
-            <p class="qs-item__dni">DNI ${escHtml(p.dni || '-')}</p>
-          </div>
-          <span class="qs-item__meta" style="font-size:11px;color:var(--text-5);">${escHtml(p.sexo || '')} &middot; ${p.edad_anios ? p.edad_anios + 'a' : ''}</span>
-        </button>`;
-      }).join('');
-
-      qsStatus(`${data.length} resultado${data.length !== 1 ? 's' : ''}. Usa flechas para navegar y Enter para abrir.`);
-      qsResults.querySelectorAll('.qs-item').forEach((btn, i) => {
-        btn.addEventListener('click', () => selectQsResult(data, i, query));
-      });
+      cacheQsResults(cacheKey, data);
+      renderQsResults(data, query);
     } catch (e) {
       if (e.name === 'AbortError') return;
       if (qsAbort !== controller) return;
@@ -3228,6 +3257,7 @@
     // Al cerrar sesión o expirar la cookie, no dejamos datos personales en
     // memoria, en el DOM ni en el historial local de búsquedas.
     searchCache.clear();
+    qsCache.clear();
     treeCache.clear();
     treeData = null;
     treeRootDni = null;
