@@ -1694,15 +1694,18 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   }
   /* Amplía el área táctil sin agrandar el icono visible. */
   .btn-clear-input::before,
-  .btn-clear-history::before,
   .btn-toggle-pass::before {
     content: '';
     position: absolute;
     inset: -9px;
   }
-  .btn-clear-history,
   .btn-toggle-pass {
     position: relative;
+  }
+  /* El historial recorta el desborde horizontal: agranda el botón real. */
+  .btn-clear-history {
+    width: 36px;
+    height: 36px;
   }
 
   /* Mobile Bottom Sheet */
