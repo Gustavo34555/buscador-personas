@@ -186,3 +186,10 @@ def test_cache_headers_estaticos(client):
     service_worker = client.get("/sw.js")
     assert service_worker.status_code == 200
     assert service_worker.headers["cache-control"] == "no-cache"
+
+
+def test_gzip_respuestas_grandes(client):
+    res = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
+    assert res.status_code == 200
+    assert res.headers.get("content-encoding") == "gzip"
+    assert res.headers.get("vary") == "Accept-Encoding"

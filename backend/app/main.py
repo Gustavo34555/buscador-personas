@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -110,6 +111,10 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Retry-After", "X-Request-ID", "Server-Timing"],
 )
+
+# Comprime JSON grandes (búsquedas, árboles, C4) también cuando FastAPI se
+# despliega sin Nginx. Nivel 6: buena relación tamaño/CPU.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 app.include_router(auth.router)
 app.include_router(admin.router)

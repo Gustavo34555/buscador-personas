@@ -40,13 +40,28 @@
 
   function isLoggedIn() { return _authenticated; }
 
+  const API_TIMEOUT_MS = 25000;
+
   async function apiFetch(url, options) {
     const opts = Object.assign({ credentials: 'include' }, options || {});
-    const res = await fetch(url, opts);
-    if (res.status === 401 && !String(url).includes('/api/auth/login')) {
-      showLoginScreen();
+    let timeoutId = null;
+    if (!opts.signal) {
+      // Evita que la interfaz quede cargando indefinidamente si la red o el
+      // backend dejan de responder. Las llamadas con señal propia (búsqueda,
+      // healthcheck) gestionan su propio timeout.
+      const timeoutController = new AbortController();
+      opts.signal = timeoutController.signal;
+      timeoutId = setTimeout(() => timeoutController.abort(), API_TIMEOUT_MS);
     }
-    return res;
+    try {
+      const res = await fetch(url, opts);
+      if (res.status === 401 && !String(url).includes('/api/auth/login')) {
+        showLoginScreen();
+      }
+      return res;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   }
 
 
@@ -870,8 +885,9 @@
       }
       resultadoEl.classList.remove('hidden');
       if (res.ok) refreshUserInfo();
-    } catch {
-      resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--error"><span class="material-symbols-outlined">error</span><span>Error de conexión al consultar RUC</span></div>`;
+    } catch (e) {
+      const timedOut = e && e.name === 'AbortError';
+      resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--error"><span class="material-symbols-outlined">error</span><span>${timedOut ? 'La consulta a SUNAT tardó demasiado. Intenta de nuevo.' : 'Error de conexión al consultar RUC'}</span></div>`;
       resultadoEl.classList.remove('hidden');
     } finally {
       btn.disabled = false;
@@ -1462,12 +1478,13 @@
       }
       renderArbol(data);
       refreshUserInfo();
-    } catch {
+    } catch (e) {
       if (requestToken !== treeRequestToken) return;
+      const timedOut = e && e.name === 'AbortError';
       treeContainer.innerHTML = `<div class="tree-empty">
         <span class="material-symbols-outlined tree-empty__icon">cloud_off</span>
-        <p class="tree-empty__title">Error de conexión</p>
-        <p class="tree-empty__desc">No se pudo conectar al servidor para construir el árbol genealógico</p>
+        <p class="tree-empty__title">${timedOut ? 'La consulta tardó demasiado' : 'Error de conexión'}</p>
+        <p class="tree-empty__desc">${timedOut ? 'El servidor no respondió a tiempo. Intenta de nuevo.' : 'No se pudo conectar al servidor para construir el árbol genealógico'}</p>
       </div>`;
     }
   }
@@ -2024,11 +2041,12 @@
         <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">info</span>
         <p>${escHtml((body && body.detail) || 'No se pudo generar la ficha de referencia')}</p>
       </div>`;
-    } catch {
+    } catch (e) {
       if (requestToken !== c4RequestToken) return;
+      const timedOut = e && e.name === 'AbortError';
       c4Container.innerHTML = `<div class="c4-loading">
         <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">cloud_off</span>
-        <p>Error de conexión al generar la ficha</p>
+        <p>${timedOut ? 'La consulta tardó demasiado. Intenta de nuevo.' : 'Error de conexión al generar la ficha'}</p>
       </div>`;
     }
   }
@@ -2665,6 +2683,11 @@
     if (abortCtrl) abortCtrl.abort();
     const controller = new AbortController();
     abortCtrl = controller;
+    let searchTimedOut = false;
+    const searchTimeoutId = setTimeout(() => {
+      searchTimedOut = true;
+      controller.abort();
+    }, API_TIMEOUT_MS);
     const isNombre = searchMode === 'nombre';
     if (!isNombre) { setLoading(true); skeleton(); }
     emptyState.classList.add('hidden');
@@ -2703,7 +2726,20 @@
       cacheSearchResults(cacheKey, data);
       applySearchData(data, q, requestedDni, updateUrl);
     } catch (e) {
-      if (e.name === 'AbortError') return;
+      if (e.name === 'AbortError') {
+        if (searchTimedOut && abortCtrl === controller) {
+          // Un timeout no debe dejar resultados viejos exportables.
+          resultados = [];
+          resultadosVista = [];
+          resultsList.innerHTML = '';
+          badgeCount.textContent = '0';
+          btnExportar.classList.add('hidden');
+          btnExportarJson.classList.add('hidden');
+          setEstado('La búsqueda tardó demasiado. Intenta de nuevo.', 'error');
+          toast('Tiempo de espera agotado', 'error');
+        }
+        return;
+      }
       // Nunca dejes resultados anteriores exportables tras un fallo.
       resultados = [];
       resultadosVista = [];
@@ -2718,6 +2754,7 @@
         setEstado(e.msg, 'error');
       }
     } finally {
+      clearTimeout(searchTimeoutId);
       if (abortCtrl === controller) {
         setLoading(false);
         resultsSection.setAttribute('aria-busy', 'false');
