@@ -1689,6 +1689,21 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
   .result-item__dni {
     font-size: 12px;
   }
+  .btn-inline-action {
+    min-height: 44px;
+  }
+  /* Amplía el área táctil sin agrandar el icono visible. */
+  .btn-clear-input::before,
+  .btn-clear-history::before,
+  .btn-toggle-pass::before {
+    content: '';
+    position: absolute;
+    inset: -9px;
+  }
+  .btn-clear-history,
+  .btn-toggle-pass {
+    position: relative;
+  }
 
   /* Mobile Bottom Sheet */
   .sheet {

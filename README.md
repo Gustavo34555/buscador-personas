@@ -20,7 +20,7 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 - **Interfaz productiva**: vista de tarjetas o tabla ordenable, panel de detalle redimensionable y colapsable, estado compartible en la URL, enlaces directos por DNI (`?dni=12345678`), historial real del navegador y atajos de teclado (`/`, `↑`/`↓`, `T`, `C`, `Ctrl+K`, `?`). La búsqueda rápida se navega con `↑`/`↓` y se abre con `Enter`.
 - **Accesibilidad**: enlace para saltar a la búsqueda, foco visible, diálogos con `aria-modal`/`inert`, cierre con `Escape`, trampa de foco, búsqueda rápida con patrón combobox/listbox y panel de administración operable por teclado.
 - **Árbol familiar eficiente**: render progresivo por lotes, caché de cinco minutos, vista de grafo o lista por pestañas y controles táctiles de 44 px.
-- **Rendimiento móvil**: tipografía Inter local, `content-visibility`, `100dvh`, áreas seguras y animaciones desactivadas con `prefers-reduced-motion`.
+- **Rendimiento móvil**: tipografía Inter local, `content-visibility`, `100dvh`, áreas seguras, acciones de 44 px y ampliación del área táctil de los iconos pequeños sin cambiar su tamaño visual, con animaciones desactivadas si el usuario prefiere menos movimiento.
 - **PWA** con Service Worker stale-while-revalidate, aviso de actualización y sin caché de respuestas personales o autenticadas.
 - **Caché de estáticos**: assets versionados con `immutable`, fuentes y SVG con caché semanal, y shell HTML/service worker siempre revalidables, también cuando FastAPI sirve el frontend sin Nginx.
 - **Caché de búsquedas**: resultados principales y de búsqueda rápida en memoria durante 3-5 minutos, acotados por número de entradas y limpiados al cerrar sesión o expirar la cookie.
