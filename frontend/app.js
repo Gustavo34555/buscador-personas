@@ -601,24 +601,29 @@
     const padres = [p.padre ? `P: ${p.padre}` : '', p.madre ? `M: ${p.madre}` : ''].filter(Boolean).join(' · ') || 'No registrados';
     const ubigeoDir = p.ubigeo_dir || p.ubigeo_nac || '-';
     const anim = i < 8 ? ` slide-up stagger-${i + 1}` : '';
+    // Sólo en móvil la tarjeta se despliega en línea; en escritorio abre el panel.
+    const currentAttr = active ? ' aria-current="true"' : '';
+    const expandAttr = window.innerWidth <= 768 ? ' aria-expanded="false"' : '';
 
-    return `<div class="result-item${anim}${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" role="button" tabindex="0" aria-expanded="${active ? 'true' : 'false'}" aria-label="${escHtml(n || 'Persona')}, DNI ${escHtml(p.dni || '-')}">
-      <div class="result-item__inner">
-        <div class="result-item__avatar ${avatarGenderClass}" title="${g === 'F' ? 'Femenino' : 'Masculino'}">
-          <span class="result-avatar-text">${escHtml(iniciales)}</span>
-        </div>
-        <div class="result-item__body">
-          <p class="result-item__name">${nHtml}</p>
-          <div class="result-item__meta">
-            <span class="result-item__dni">DNI ${escHtml(p.dni || '-')}</span>
-            ${vigenciaBadge}
-            ${edadBadge}
-            ${civilBadge}
-          </div>
-        </div>
-        <span class="material-symbols-outlined result-item__chevron" aria-hidden="true">chevron_right</span>
-      </div>
-      ${p.direccion ? `<p class="result-item__address"><span class="material-symbols-outlined" aria-hidden="true">location_on</span>${escHtml(p.direccion)}</p>` : ''}
+    return `<div class="result-item${anim}${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}">
+      <button type="button" class="result-item__open" data-result-open${currentAttr}${expandAttr} aria-label="${escHtml(n || 'Persona')}, DNI ${escHtml(p.dni || '-')}">
+        <span class="result-item__inner">
+          <span class="result-item__avatar ${avatarGenderClass}" title="${g === 'F' ? 'Femenino' : 'Masculino'}">
+            <span class="result-avatar-text">${escHtml(iniciales)}</span>
+          </span>
+          <span class="result-item__body">
+            <span class="result-item__name">${nHtml}</span>
+            <span class="result-item__meta">
+              <span class="result-item__dni">DNI ${escHtml(p.dni || '-')}</span>
+              ${vigenciaBadge}
+              ${edadBadge}
+              ${civilBadge}
+            </span>
+          </span>
+          <span class="material-symbols-outlined result-item__chevron" aria-hidden="true">chevron_right</span>
+        </span>
+        ${p.direccion ? `<span class="result-item__address"><span class="material-symbols-outlined" aria-hidden="true">location_on</span>${escHtml(p.direccion)}</span>` : ''}
+      </button>
 
       <div class="result-item__inline-detail">
         <div class="result-inline-data">
@@ -776,11 +781,18 @@
       const isExpanded = el.classList.contains('result-item--expanded');
       resultsList.querySelectorAll('.result-item').forEach((item) => {
         item.classList.remove('result-item--expanded');
-        item.setAttribute('aria-expanded', 'false');
+        const openBtn = item.querySelector('[data-result-open]');
+        if (!openBtn) return;
+        openBtn.setAttribute('aria-expanded', 'false');
+        openBtn.removeAttribute('aria-current');
       });
       if (!isExpanded) {
         el.classList.add('result-item--expanded');
-        el.setAttribute('aria-expanded', 'true');
+        const openBtn = el.querySelector('[data-result-open]');
+        if (openBtn) {
+          openBtn.setAttribute('aria-expanded', 'true');
+          openBtn.setAttribute('aria-current', 'true');
+        }
         personaSeleccionada = p;
         syncUrlState();
         setTimeout(() => el.scrollIntoView({ behavior: scrollBehavior(), block: 'nearest' }), 80);
@@ -820,6 +832,9 @@
       return;
     }
 
+    // Leer o seleccionar texto del detalle desplegado no debe plegar la tarjeta.
+    if (e.target.closest('.result-item__inline-detail')) return;
+
     const row = e.target.closest('.result-item, .result-row');
     if (!row) return;
     const index = Number(row.getAttribute('data-index'));
@@ -830,6 +845,7 @@
   function handleResultsKeydown(e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if (e.target.closest('button, a')) return;
+    if (e.target.closest('.result-item__inline-detail')) return;
     const row = e.target.closest('.result-item, .result-row');
     if (!row) return;
     e.preventDefault();
@@ -2280,7 +2296,13 @@
     resultsList.querySelectorAll('.result-item').forEach((el) => {
       const isActive = Number(el.getAttribute('data-index')) === index;
       el.classList.toggle('result-item--active', isActive);
-      el.setAttribute('aria-expanded', isActive ? 'true' : 'false');
+      const openBtn = el.querySelector('[data-result-open]');
+      if (!openBtn) return;
+      if (isActive) openBtn.setAttribute('aria-current', 'true');
+      else openBtn.removeAttribute('aria-current');
+      if (openBtn.hasAttribute('aria-expanded')) {
+        openBtn.setAttribute('aria-expanded', el.classList.contains('result-item--expanded') ? 'true' : 'false');
+      }
     });
     resultsList.querySelectorAll('.result-row').forEach((el) => {
       const isActive = Number(el.getAttribute('data-index')) === index;

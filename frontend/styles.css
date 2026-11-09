@@ -655,6 +655,28 @@ img, svg { display: block; max-width: 100%; }
 }
 .result-item--active::before { background: var(--accent); }
 
+/* Área principal como botón real: las acciones internas quedan fuera para
+   no anidar controles interactivos dentro de otro control. */
+.result-item__open {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.result-item__open:focus-visible {
+  outline: 2px solid var(--accent-light);
+  outline-offset: -3px;
+  border-radius: var(--radius-md);
+}
+
 .result-item__inner { display: flex; align-items: flex-start; gap: 14px; }
 .result-item__avatar {
   width: 46px; height: 46px; border-radius: 14px;
@@ -690,6 +712,7 @@ img, svg { display: block; max-width: 100%; }
 
 .result-item__body { flex: 1; min-width: 0; }
 .result-item__name {
+  display: block;
   font-family: var(--font-display);
   font-size: 16px; font-weight: 700; color: var(--text);
   white-space: normal; word-break: break-word; line-height: 1.35;
@@ -1674,7 +1697,7 @@ mark { background: rgba(99, 102, 241, 0.25); color: var(--accent-soft); border-r
     border-radius: var(--radius-lg);
     -webkit-tap-highlight-color: transparent;
   }
-  .result-item:active {
+  .result-item__open:active {
     transform: scale(0.985);
     background: var(--surface-card);
   }
