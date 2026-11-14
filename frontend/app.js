@@ -678,8 +678,9 @@
       const n = nombre(p) || '-';
       const g = sexoLetra(p.sexo);
       const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-row--active' : '';
+      const currentAttr = active ? ' aria-current="true"' : '';
       const iniciales = initialsFor(p);
-      return `<tr class="result-row${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" tabindex="0" role="row" aria-selected="${active ? 'true' : 'false'}" aria-label="${escHtml(n)}, DNI ${escHtml(p.dni || '-')}">
+      return `<tr class="result-row${active}" data-index="${i}" data-dni="${escHtml(p.dni || '')}" tabindex="0"${currentAttr} aria-label="${escHtml(n)}, DNI ${escHtml(p.dni || '-')}">
         <td class="result-cell--name"><span class="table-avatar" aria-hidden="true">${escHtml(iniciales)}</span>${escHtml(n)}</td>
         <td class="result-cell--dni">${escHtml(p.dni || '-')}</td>
         <td>${p.edad_anios != null ? escHtml(p.edad_anios) + ' años' : '-'}</td>
@@ -772,7 +773,8 @@
         resultsList.querySelectorAll('.result-row').forEach((row) => {
           const isActive = Number(row.getAttribute('data-index')) === index;
           row.classList.toggle('result-row--active', isActive);
-          row.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          if (isActive) row.setAttribute('aria-current', 'true');
+          else row.removeAttribute('aria-current');
         });
         syncUrlState();
         openMobileSheet(buildDetailHTML(p), p);
@@ -2311,7 +2313,8 @@
     resultsList.querySelectorAll('.result-row').forEach((el) => {
       const isActive = Number(el.getAttribute('data-index')) === index;
       el.classList.toggle('result-row--active', isActive);
-      el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      if (isActive) el.setAttribute('aria-current', 'true');
+      else el.removeAttribute('aria-current');
     });
 
     const html = buildDetailHTML(p);

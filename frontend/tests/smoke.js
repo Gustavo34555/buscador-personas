@@ -326,6 +326,8 @@ function assert(cond, msg) {
     assert(row, 'vista tabla renderiza filas en móvil');
     row.click();
     await wait(160);
+    assert(row.getAttribute('aria-current') === 'true', 'fila activa marcada con aria-current');
+    assert(!row.hasAttribute('aria-selected'), 'fila no usa aria-selected inválido');
     const sheet = window.document.getElementById('mobile-sheet');
     assert(sheet.classList.contains('open'), 'bottom sheet abierto');
     assert(sheet.getAttribute('aria-hidden') === 'false', 'sheet aria-hidden false');
