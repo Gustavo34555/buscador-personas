@@ -13,8 +13,8 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 - **Hermanos completos y medios hermanos**: distingue `hermano_completo`, `medio_hermano_paterno` y `medio_hermano_materno` según los campos de filiación.
 - **Autenticación segura**: JWT en cookie `HttpOnly` + `SameSite=Strict`, con fallback `Bearer` para clientes API. El frontend nunca guarda el token en `localStorage`.
 - **API keys de solo lectura**: las integraciones con `X-API-Key` no pueden acceder a endpoints de administración.
-- **Cuotas atómicas**: descuento y reembolso de consultas ante errores o resultados no encontrados.
-- **Caché opcional con Redis**: si no hay `REDIS_URL`, se usa caché en memoria.
+- **Cuotas atómicas**: descuento y reembolso de consultas ante errores o resultados no encontrados, con el saldo restante en `X-Consultas-Restantes` para que el frontend no haga peticiones extra.
+- **Caché opcional con Redis**: si no hay `REDIS_URL`, se usa caché en memoria. Las claves de búsqueda se normalizan (tildes incluidas) y los DNI inexistentes se recuerdan brevemente para evitar consultas repetidas.
 - **Ficha C4 de referencia**: claramente etiquetada como no oficial, sin logotipos ni leyendas de RENIEC.
 - **Exportación CSV/JSON** con protección contra inyección de fórmulas.
 - **Interfaz productiva**: vista de tarjetas o tabla ordenable, panel de detalle redimensionable y colapsable, estado compartible en la URL, enlaces directos por DNI (`?dni=12345678`), historial real del navegador y atajos de teclado (`/`, `↑`/`↓`, `T`, `C`, `Ctrl+K`, `?`). La búsqueda rápida se navega con `↑`/`↓` y se abre con `Enter`.
@@ -130,8 +130,13 @@ El frontend puede servirse con Nginx o con cualquier servidor estático apuntand
 
 ```bash
 cd backend
-pytest -q          # 59 pruebas
+pytest -q          # 63 pruebas
 ruff check .
+
+# Smoke tests de interfaz (escritorio y móvil) con jsdom
+cd ../frontend/tests
+npm install
+npm test
 ```
 
 ---

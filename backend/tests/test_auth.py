@@ -234,8 +234,11 @@ def test_consulta_exitosa_descuenta_y_404_reembolsa(client, monkeypatch):
     token = auth_service.crear_token(2, "testuser", "user")
     headers = {"Authorization": f"Bearer {token}"}
     monkeypatch.setattr(persona_service, "engine", FakeEngine([PERSONA_FILA]))
+    MOCK_USERS[2]["consultas_usadas"] = 0
 
-    assert client.get("/persona/12345678", headers=headers).status_code == 200
+    res = client.get("/persona/12345678", headers=headers)
+    assert res.status_code == 200
+    assert res.headers["X-Consultas-Restantes"] == "49"
     assert MOCK_USERS[2]["consultas_usadas"] == 1
 
     # Un DNI inexistente no debe consumir la cuota.

@@ -109,7 +109,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["Retry-After", "X-Request-ID", "Server-Timing"],
+    expose_headers=["Retry-After", "X-Request-ID", "Server-Timing", "X-Consultas-Restantes"],
 )
 
 # Comprime JSON grandes (búsquedas, árboles, C4) también cuando FastAPI se

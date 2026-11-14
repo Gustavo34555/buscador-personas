@@ -881,6 +881,7 @@
 
     try {
       const res = await apiFetch(`${API_BASE}/scraping/ruc/${encodeURIComponent(dni)}`, { headers: apiHeaders() });
+      applyQuotaFromResponse(res);
       const data = await res.json();
 
       if (res.status === 429) {
@@ -905,7 +906,6 @@
           </div>`;
       }
       resultadoEl.classList.remove('hidden');
-      if (res.ok) refreshUserInfo();
     } catch (e) {
       const timedOut = e && e.name === 'AbortError';
       resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--error"><span class="material-symbols-outlined">error</span><span>${timedOut ? 'La consulta a SUNAT tardó demasiado. Intenta de nuevo.' : 'Error de conexión al consultar RUC'}</span></div>`;
@@ -2648,6 +2648,11 @@
 
     btnExportar.classList.toggle('hidden', data.length === 0);
     btnExportarJson.classList.toggle('hidden', data.length === 0);
+    // La cabecera del servidor manda; el descuento local es sólo un respaldo
+    // para respuestas sin cabecera. Incluye búsquedas sin coincidencias.
+    if (options.decrement !== false && options.charged && !options.quotaSynced) {
+      decrementConsultas();
+    }
     if (data.length > 0) {
       addRecentSearch(q, searchMode);
       const requestedIndex = requestedDni
@@ -2655,7 +2660,6 @@
         : -1;
       const index = requestedIndex >= 0 ? requestedIndex : 0;
       showDetail(resultadosVista[index], index, false, { syncUrl: updateUrl });
-      if (options.decrement !== false) decrementConsultas();
     }
   }
 
@@ -2724,34 +2728,39 @@
 
     try {
       let data;
+      let charged = false;
+      let quotaSynced = false;
       if (searchMode === 'dni') {
         const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(q)}`, {
           signal: controller.signal, headers: apiHeaders(),
         });
+        quotaSynced = applyQuotaFromResponse(res);
         if (res.status === 404) {
           data = []; setEstado('DNI no encontrado en el padrón', 'error'); toast('DNI no encontrado', 'warn');
         } else if (!res.ok) {
           const body = await res.json().catch(() => null);
           throw { handled: true, msg: handleApiError(res, body) };
         } else {
-          data = [await res.json()]; toast('Persona localizada con éxito', 'success');
+          data = [await res.json()]; charged = true; toast('Persona localizada con éxito', 'success');
         }
       } else {
         const res = await apiFetch(`${API_BASE}/buscar?q=${encodeURIComponent(q)}&limit=${limiteSelect.value}`, {
           signal: controller.signal, headers: apiHeaders(),
         });
+        quotaSynced = applyQuotaFromResponse(res);
         if (!res.ok) {
           const body = await res.json().catch(() => null);
           throw { handled: true, msg: handleApiError(res, body) };
         }
         data = await res.json();
+        charged = true;
       }
 
       // Una búsqueda más reciente ya reemplazó a esta: descarta la respuesta.
       if (abortCtrl !== controller) return;
 
       cacheSearchResults(cacheKey, data);
-      applySearchData(data, q, requestedDni, updateUrl);
+      applySearchData(data, q, requestedDni, updateUrl, { charged, quotaSynced });
     } catch (e) {
       if (e.name === 'AbortError') {
         if (searchTimedOut && abortCtrl === controller) {
@@ -3022,33 +3031,38 @@
 
     try {
       let data;
+      let charged = false;
+      let quotaSynced = false;
       if (isDni) {
         const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(query.trim())}`, {
           signal: controller.signal, headers: apiHeaders(),
         });
+        quotaSynced = applyQuotaFromResponse(res);
         if (res.status === 404) data = [];
         else if (!res.ok) throw new Error();
-        else data = [await res.json()];
+        else { data = [await res.json()]; charged = true; }
       } else {
         const res = await apiFetch(`${API_BASE}/buscar?q=${encodeURIComponent(query)}&limit=6`, {
           signal: controller.signal, headers: apiHeaders(),
         });
+        quotaSynced = applyQuotaFromResponse(res);
         if (res.status === 403) {
           const body = await res.json().catch(() => null);
           if (qsAbort !== controller) return;
-          qsCharged = true;
+          _consultasRestantes = 0;
+          updateConsultasBadge();
           qsResults.setAttribute('aria-busy', 'false');
           qsResults.innerHTML = `<p class="qs-empty qs-error">${escHtml((body && body.detail) || 'Sin consultas disponibles')}</p>`;
           qsStatus('Sin consultas disponibles');
-          refreshUserInfo();
           return;
         }
         if (!res.ok) throw new Error();
         data = await res.json();
+        charged = true;
       }
 
       if (qsAbort !== controller) return;
-      qsCharged = true;
+      if (charged && !quotaSynced) qsCharged = true;
       cacheQsResults(cacheKey, data);
       renderQsResults(data, query);
     } catch (e) {
@@ -3255,6 +3269,19 @@
     if (_userRol === 'admin') return;
     _consultasRestantes = Math.max(0, _consultasRestantes - 1);
     updateConsultasBadge();
+  }
+
+  // El backend devuelve el saldo exacto tras cada consulta; así no hace falta
+  // una petición adicional a /api/auth/me para sincronizar el badge.
+  function applyQuotaFromResponse(res) {
+    if (!res || !res.headers || typeof res.headers.get !== 'function') return false;
+    const raw = res.headers.get('X-Consultas-Restantes');
+    if (raw === null || raw === '') return false;
+    const restantes = Number(raw);
+    if (!Number.isFinite(restantes)) return false;
+    _consultasRestantes = Math.max(0, restantes);
+    updateConsultasBadge();
+    return true;
   }
 
   async function refreshUserInfo() {

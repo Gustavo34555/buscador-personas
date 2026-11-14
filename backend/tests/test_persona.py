@@ -18,6 +18,14 @@ def test_persona_no_encontrada(client, monkeypatch):
     assert res.status_code == 404
 
 
+def test_persona_no_encontrada_cache_negativa(client, monkeypatch):
+    engine = FakeEngine([])
+    _mock_engine(monkeypatch, engine)
+    assert client.get("/persona/99999998").status_code == 404
+    assert client.get("/persona/99999998").status_code == 404
+    assert engine.connect_count == 1
+
+
 def test_persona_encontrada(client, monkeypatch):
     _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
     res = client.get("/persona/12345678")
@@ -85,6 +93,16 @@ def test_buscar_cache(client, monkeypatch):
     _mock_engine(monkeypatch, engine)
     client.get("/buscar", params={"q": "Juan"})
     client.get("/buscar", params={"q": "Juan"})
+    assert engine.connect_count == 1
+
+
+def test_buscar_cache_normaliza_tildes(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    fila["dig_ruc"] = "5"
+    engine = FakeEngine([fila])
+    _mock_engine(monkeypatch, engine)
+    assert client.get("/buscar", params={"q": "García"}).status_code == 200
+    assert client.get("/buscar", params={"q": "Garcia"}).status_code == 200
     assert engine.connect_count == 1
 
 

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import unicodedata
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.cache import build_cache
@@ -13,6 +13,7 @@ from app.config import (
     ENABLE_C4,
     FAMILIA_LIMITE_DEFAULT,
     FAMILIA_LIMITE_MAX,
+    NEGATIVE_CACHE_TTL,
 )
 from app.dependencies import get_client_host, verify_search_rate_limit
 from app.schemas import ArbolResponse, FichaReferenciaC4Response, PersonaBusquedaItem, PersonaResponse
@@ -26,6 +27,9 @@ router = APIRouter(tags=["personas"])
 dni_cache = build_cache("dni", maxsize=1000, ttl=DNI_CACHE_TTL)
 buscar_cache = build_cache("buscar", maxsize=500, ttl=BUSCAR_CACHE_TTL)
 arbol_cache = build_cache("arbol", maxsize=500, ttl=ARBOL_CACHE_TTL)
+# Evita repetir consultas a la base para DNIs inexistentes (también frena
+# intentos de enumeración). Es independiente de la cuota: un 404 se reembolsa.
+dni_negative_cache = build_cache("dni_negative", maxsize=2000, ttl=NEGATIVE_CACHE_TTL)
 
 _AVISO_C4 = (
     "Documento de referencia generado a partir de los datos del padrón. "
@@ -45,15 +49,16 @@ def _es_usuario_real(user_payload: dict) -> bool:
     return isinstance(sub, int) and sub > 0
 
 
-def _consumir_consulta(user_payload: dict) -> bool:
+def _consumir_consulta(user_payload: dict) -> tuple[bool, int | None]:
     """Descuenta una consulta de forma atómica.
 
-    Retorna ``True`` si se descontó, para poder reembolsarla cuando la
-    operación no llegue a entregar datos. Los administradores, las API keys y
-    el modo abierto de desarrollo no tienen cuota.
+    Retorna ``(consumida, restantes)``. ``consumida`` permite reembolsar la
+    consulta cuando la operación no llega a entregar datos. Los
+    administradores, las API keys y el modo abierto no tienen cuota, por lo
+    que ``restantes`` es ``None``.
     """
     if user_payload.get("rol") == "admin" or not _es_usuario_real(user_payload):
-        return False
+        return False, None
 
     restantes = auth_service.consumir_consulta(user_payload["sub"])
     if restantes is None:
@@ -61,7 +66,13 @@ def _consumir_consulta(user_payload: dict) -> bool:
             status_code=403,
             detail="Sin consultas disponibles. Contacta al administrador para obtener más.",
         )
-    return True
+    return True, restantes
+
+
+def _set_quota_header(response: Response, restantes: int | None) -> None:
+    """Expone el saldo exacto para que el frontend no haga otra petición."""
+    if restantes is not None:
+        response.headers["X-Consultas-Restantes"] = str(restantes)
 
 
 def _reembolsar_consulta(user_payload: dict, consumida: bool) -> None:
@@ -73,6 +84,7 @@ def _reembolsar_consulta(user_payload: dict, consumida: bool) -> None:
 async def obtener_persona(
     dni: str,
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     _rate_limit: None = Depends(verify_search_rate_limit),
     user_payload: dict = Depends(require_jwt_auth),
@@ -80,10 +92,15 @@ async def obtener_persona(
     if not (dni.isdigit() and len(dni) == 8):
         raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
 
-    consumida = _consumir_consulta(user_payload)
+    consumida, restantes = _consumir_consulta(user_payload)
+
+    if dni_negative_cache.get(dni) is not None:
+        _reembolsar_consulta(user_payload, consumida)
+        raise HTTPException(status_code=404, detail="Persona no encontrada")
 
     cached = dni_cache.get(dni)
     if cached is not None:
+        _set_quota_header(response, restantes)
         return cached
 
     try:
@@ -94,11 +111,14 @@ async def obtener_persona(
         raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
 
     if not fila:
+        dni_negative_cache.set(dni, True)
         _reembolsar_consulta(user_payload, consumida)
         raise HTTPException(status_code=404, detail="Persona no encontrada")
 
     result = dict(fila)
+    dni_negative_cache.delete(dni)
     dni_cache.set(dni, result)
+    _set_quota_header(response, restantes)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "persona", dni)
     return result
 
@@ -106,6 +126,7 @@ async def obtener_persona(
 @router.get("/buscar", response_model=list[PersonaBusquedaItem])
 async def buscar_personas(
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     q: str = Query(..., min_length=2, description="Nombre o apellido a buscar"),
     limit: int = Query(20, ge=1, le=200, description="Máximo de resultados"),
@@ -122,15 +143,18 @@ async def buscar_personas(
             detail="Búsqueda muy corta: mínimo 3 caracteres",
         )
 
-    consumida = _consumir_consulta(user_payload)
-
-    cache_key = f"{q.lower()}:{limit}"
-    cached = buscar_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
+    # La clave usa el texto normalizado: "García" y "Garcia" comparten caché.
     q_normalized = _normalize_text(q)
     q_lower = q_normalized.lower()
+    cache_key = f"{q_lower}:{limit}"
+
+    consumida, restantes = _consumir_consulta(user_payload)
+
+    cached = buscar_cache.get(cache_key)
+    if cached is not None:
+        _set_quota_header(response, restantes)
+        return cached
+
     q_prefix = q_lower + "%"
 
     words = q_lower.split()
@@ -160,6 +184,7 @@ async def buscar_personas(
 
     result = [dict(fila) for fila in filas]
     buscar_cache.set(cache_key, result)
+    _set_quota_header(response, restantes)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "buscar", q)
     return result
 
@@ -167,6 +192,7 @@ async def buscar_personas(
 @router.get("/persona/{dni}/arbol", response_model=ArbolResponse)
 async def arbol_genealogico(
     dni: str,
+    response: Response,
     limite: int = Query(
         default=FAMILIA_LIMITE_DEFAULT,
         ge=1,
@@ -179,11 +205,16 @@ async def arbol_genealogico(
     if not (dni.isdigit() and len(dni) == 8):
         raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
 
-    consumida = _consumir_consulta(user_payload)
+    consumida, restantes = _consumir_consulta(user_payload)
+
+    if dni_negative_cache.get(dni) is not None:
+        _reembolsar_consulta(user_payload, consumida)
+        raise HTTPException(status_code=404, detail="Persona no encontrada")
 
     cache_key = f"{dni}:{limite}"
     cached = arbol_cache.get(cache_key)
     if cached is not None:
+        _set_quota_header(response, restantes)
         return cached
 
     try:
@@ -194,10 +225,12 @@ async def arbol_genealogico(
         raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
 
     if not arbol:
+        dni_negative_cache.set(dni, True)
         _reembolsar_consulta(user_payload, consumida)
         raise HTTPException(status_code=404, detail="Persona no encontrada")
 
     arbol_cache.set(cache_key, arbol)
+    _set_quota_header(response, restantes)
     return arbol
 
 
@@ -205,6 +238,7 @@ async def arbol_genealogico(
 async def obtener_ficha_referencia_c4(
     dni: str,
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     _rate_limit: None = Depends(verify_search_rate_limit),
     user_payload: dict = Depends(require_jwt_auth),
@@ -227,11 +261,16 @@ async def obtener_ficha_referencia_c4(
     if not (dni.isdigit() and len(dni) == 8):
         raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
 
-    consumida = _consumir_consulta(user_payload)
+    consumida, restantes = _consumir_consulta(user_payload)
+
+    if dni_negative_cache.get(dni) is not None:
+        _reembolsar_consulta(user_payload, consumida)
+        raise HTTPException(status_code=404, detail="Persona no encontrada")
 
     cached = dni_cache.get(dni)
     if cached is not None:
         fila = cached
+        _set_quota_header(response, restantes)
     else:
         try:
             fila = await asyncio.to_thread(persona_service.obtener_por_dni, dni)
@@ -241,10 +280,13 @@ async def obtener_ficha_referencia_c4(
             raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
 
         if not fila:
+            dni_negative_cache.set(dni, True)
             _reembolsar_consulta(user_payload, consumida)
             raise HTTPException(status_code=404, detail="Persona no encontrada")
         fila = dict(fila)
+        dni_negative_cache.delete(dni)
         dni_cache.set(dni, fila)
+        _set_quota_header(response, restantes)
 
     ahora = datetime.now()
     fecha_generacion = ahora.strftime("%d/%m/%Y %H:%M:%S")
