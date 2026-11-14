@@ -891,6 +891,10 @@
       } else if (res.status === 401) {
         resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--error"><span class="material-symbols-outlined">lock</span><span>Sesión expirada. Recarga la página.</span></div>`;
       } else if (!res.ok) {
+        if (res.status === 403) {
+          _consultasRestantes = 0;
+          updateConsultasBadge();
+        }
         resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--error"><span class="material-symbols-outlined">error</span><span>${escHtml(data.detail || 'Error al consultar RUC')}</span></div>`;
       } else if (!data.tiene_ruc) {
         resultadoEl.innerHTML = `<div class="ruc-alert ruc-alert--info"><span class="material-symbols-outlined">info</span><span>Esta persona no tiene RUC registrado ante SUNAT</span></div>`;
