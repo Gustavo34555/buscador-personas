@@ -3273,7 +3273,7 @@
   }
 
   function decrementConsultas() {
-    if (_userRol === 'admin') return;
+    if (!_authenticated || _userRol === 'admin') return;
     _consultasRestantes = Math.max(0, _consultasRestantes - 1);
     updateConsultasBadge();
   }
@@ -3281,6 +3281,8 @@
   // El backend devuelve el saldo exacto tras cada consulta; así no hace falta
   // una petición adicional a /api/auth/me para sincronizar el badge.
   function applyQuotaFromResponse(res) {
+    // Una respuesta tardía tras cerrar sesión no debe repintar la cuota.
+    if (!_authenticated) return false;
     if (!res || !res.headers || typeof res.headers.get !== 'function') return false;
     const raw = res.headers.get('X-Consultas-Restantes');
     if (raw === null || raw === '') return false;
@@ -3312,6 +3314,16 @@
   function clearSensitiveState() {
     // Al cerrar sesión o expirar la cookie, no dejamos datos personales en
     // memoria, en el DOM ni en el historial local de búsquedas.
+    // Cancela búsquedas en vuelo: sus respuestas no deben llegar al DOM
+    // después de cerrar sesión ni mezclarse con la siguiente cuenta.
+    if (abortCtrl) {
+      abortCtrl.abort();
+      abortCtrl = null;
+    }
+    if (qsAbort) {
+      qsAbort.abort();
+      qsAbort = null;
+    }
     searchCache.clear();
     qsCache.clear();
     treeCache.clear();

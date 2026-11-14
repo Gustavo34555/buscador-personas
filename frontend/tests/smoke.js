@@ -411,6 +411,81 @@ function assert(cond, msg) {
     dom.window.close();
   }
 
+  // 11. Logout cancela una búsqueda en vuelo: no repinta datos ni cuota.
+  {
+    const { dom, window } = makeDom('http://127.0.0.1:8000/', { authenticated: true, admin: false });
+    const baseFetch = window.fetch;
+    window.fetch = (input, init = {}) => {
+      const url = String(input);
+      if (url.includes('/buscar')) {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve(response(200, [person, person2], { 'X-Consultas-Restantes': '55' })),
+            180,
+          );
+          if (init.signal) {
+            init.signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              const err = new Error('Aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          }
+        });
+      }
+      return baseFetch(input, init);
+    };
+    await wait(180);
+    window.document.getElementById('mode-nombre').click();
+    window.document.getElementById('search-input').value = 'JUAN PEREZ';
+    window.document.getElementById('btn-search').click();
+    await wait(30);
+    window.document.getElementById('btn-logout').click();
+    await wait(320);
+    assert(window.document.body.classList.contains('login-visible'), 'logout muestra login');
+    assert(window.document.getElementById('results-list').innerHTML === '', 'respuesta tardía no repinta resultados');
+    assert(window.document.querySelectorAll('.result-item').length === 0, 'sin tarjetas tras logout');
+    assert(window.document.getElementById('consultas-count').textContent !== '55', 'respuesta tardía no repinta cuota');
+    dom.window.close();
+  }
+
+  // 12. RUC sincroniza la cuota desde la cabecera y la agota en 403.
+  {
+    const { dom, window } = makeDom('http://127.0.0.1:8000/?dni=12345678', { authenticated: true, admin: false });
+    const baseFetch = window.fetch;
+    let rucStatus = 'ok';
+    window.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes('/scraping/ruc/')) {
+        if (rucStatus === 'ok') {
+          return response(200, {
+            tiene_ruc: true,
+            ruc: '10123456785',
+            razon_social: 'PEREZ GOMEZ JUAN CARLOS',
+            estado: 'ACTIVO',
+            condicion: 'HABIDO',
+          }, { 'X-Consultas-Restantes': '41' });
+        }
+        return response(403, { detail: 'Sin consultas disponibles' });
+      }
+      return baseFetch(input, init);
+    };
+    await wait(260);
+    const rucBtn = window.document.getElementById('btn-consultar-ruc');
+    assert(rucBtn, 'botón de consulta RUC presente');
+    rucBtn.click();
+    await wait(160);
+    assert(window.document.getElementById('consultas-count').textContent === '41', 'RUC sincroniza cuota desde cabecera');
+    assert(window.document.getElementById('ruc-resultado').textContent.includes('PEREZ GOMEZ'), 'RUC muestra razón social');
+
+    rucStatus = '403';
+    rucBtn.click();
+    await wait(160);
+    assert(window.document.getElementById('consultas-count').textContent === '0', 'RUC sin cuota marca cero');
+    assert(window.document.getElementById('ruc-resultado').textContent.includes('Sin consultas disponibles'), 'RUC muestra aviso de cuota');
+    dom.window.close();
+  }
+
   console.log('SMOKE OK');
   process.exit(0);
 })().catch((err) => {

@@ -1,4 +1,5 @@
 import pytest
+from fastapi import HTTPException
 
 from app.services import auth_service
 from tests.fakes import PERSONA_FILA, FakeEngine
@@ -245,3 +246,96 @@ def test_consulta_exitosa_descuenta_y_404_reembolsa(client, monkeypatch):
     monkeypatch.setattr(persona_service, "engine", FakeEngine([]))
     assert client.get("/persona/99999999", headers=headers).status_code == 404
     assert MOCK_USERS[2]["consultas_usadas"] == 1
+
+
+class FakeRucService:
+    api_key = "test-key"
+
+    def __init__(self, error=None):
+        self.error = error
+
+    async def consultar(self, ruc):
+        if self.error:
+            raise self.error
+        return {
+            "ruc": ruc,
+            "razon_social": "PEREZ GOMEZ JUAN CARLOS",
+            "estado": "ACTIVO",
+            "condicion": "HABIDO",
+            "direccion": "AV LIMA 123",
+        }
+
+
+def _ruc_headers():
+    token = auth_service.crear_token(2, "testuser", "user")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_ruc_descuenta_cuota_y_expone_saldo(client, monkeypatch):
+    from app.routers.ruc import get_ruc_service
+    from app.services import persona_service
+
+    monkeypatch.setattr(
+        persona_service, "engine", FakeEngine([{"dni": "12345678", "dig_ruc": "5"}])
+    )
+    client.app.dependency_overrides[get_ruc_service] = lambda: FakeRucService()
+    MOCK_USERS[2]["consultas_usadas"] = 0
+    try:
+        res = client.get("/scraping/ruc/12345678", headers=_ruc_headers())
+        assert res.status_code == 200
+        assert res.headers["X-Consultas-Restantes"] == "49"
+        assert MOCK_USERS[2]["consultas_usadas"] == 1
+
+        # La caché del servidor acelera la respuesta, pero sigue descontando.
+        res = client.get("/scraping/ruc/12345678", headers=_ruc_headers())
+        assert res.status_code == 200
+        assert res.headers["X-Consultas-Restantes"] == "48"
+        assert MOCK_USERS[2]["consultas_usadas"] == 2
+    finally:
+        client.app.dependency_overrides.pop(get_ruc_service, None)
+
+
+def test_ruc_error_reembolsa_cuota(client, monkeypatch):
+    from app.routers.ruc import get_ruc_service
+    from app.services import persona_service
+
+    monkeypatch.setattr(
+        persona_service, "engine", FakeEngine([{"dni": "12345678", "dig_ruc": "5"}])
+    )
+    service = FakeRucService(error=HTTPException(500, "SUNAT no disponible"))
+    client.app.dependency_overrides[get_ruc_service] = lambda: service
+    MOCK_USERS[2]["consultas_usadas"] = 0
+    try:
+        res = client.get("/scraping/ruc/12345678", headers=_ruc_headers())
+        assert res.status_code == 500
+        assert MOCK_USERS[2]["consultas_usadas"] == 0
+    finally:
+        client.app.dependency_overrides.pop(get_ruc_service, None)
+
+
+def test_ruc_info_expone_saldo(client, monkeypatch):
+    from app.routers.ruc import get_ruc_service
+
+    client.app.dependency_overrides[get_ruc_service] = lambda: FakeRucService()
+    MOCK_USERS[2]["consultas_usadas"] = 0
+    try:
+        res = client.get("/scraping/ruc-info/10123456785", headers=_ruc_headers())
+        assert res.status_code == 200
+        assert res.headers["X-Consultas-Restantes"] == "49"
+        assert MOCK_USERS[2]["consultas_usadas"] == 1
+    finally:
+        client.app.dependency_overrides.pop(get_ruc_service, None)
+
+
+def test_ruc_info_404_reembolsa(client, monkeypatch):
+    from app.routers.ruc import get_ruc_service
+
+    service = FakeRucService(error=HTTPException(404, "RUC no encontrado"))
+    client.app.dependency_overrides[get_ruc_service] = lambda: service
+    MOCK_USERS[2]["consultas_usadas"] = 0
+    try:
+        res = client.get("/scraping/ruc-info/10123456785", headers=_ruc_headers())
+        assert res.status_code == 404
+        assert MOCK_USERS[2]["consultas_usadas"] == 0
+    finally:
+        client.app.dependency_overrides.pop(get_ruc_service, None)

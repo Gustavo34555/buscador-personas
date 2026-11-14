@@ -130,7 +130,7 @@ El frontend puede servirse con Nginx o con cualquier servidor estático apuntand
 
 ```bash
 cd backend
-pytest -q          # 63 pruebas
+pytest -q          # 67 pruebas
 ruff check .
 
 # Smoke tests de interfaz (escritorio y móvil) con jsdom
