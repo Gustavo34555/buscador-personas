@@ -2412,6 +2412,11 @@
   function openMobileSheet(html, p) {
     lastFocusedElement = document.activeElement;
     mobileSheetContent.innerHTML = html;
+    const nombreTitular = nombre(p) || 'persona';
+    mobileSheet.setAttribute(
+      'aria-label',
+      `Detalle de ${nombreTitular}${p && p.dni ? `, DNI ${p.dni}` : ''}`,
+    );
     mobileSheet.classList.add('open');
     mobileSheet.removeAttribute('inert');
     mobileSheet.setAttribute('aria-hidden', 'false');
@@ -3269,15 +3274,20 @@
   const adminMsg = $('admin-msg');
 
   function updateConsultasBadge() {
+    let label;
     if (_userRol === 'admin') {
       consultasCount.textContent = '∞';
       consultasBadge.className = 'consultas-badge';
+      label = 'Consultas ilimitadas';
     } else {
       consultasCount.textContent = _consultasRestantes;
       consultasBadge.className = 'consultas-badge' +
         (_consultasRestantes <= 0 ? ' consultas-badge--empty' :
          _consultasRestantes <= 10 ? ' consultas-badge--warn' : '');
+      label = `Consultas disponibles: ${_consultasRestantes}`;
     }
+    consultasBadge.setAttribute('aria-label', label);
+    consultasBadge.title = label;
   }
 
   function decrementConsultas() {

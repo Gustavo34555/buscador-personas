@@ -331,6 +331,8 @@ function assert(cond, msg) {
     const sheet = window.document.getElementById('mobile-sheet');
     assert(sheet.classList.contains('open'), 'bottom sheet abierto');
     assert(sheet.getAttribute('aria-hidden') === 'false', 'sheet aria-hidden false');
+    assert(sheet.getAttribute('aria-label').includes('JUAN CARLOS'), 'sheet anuncia el nombre del titular');
+    assert(sheet.getAttribute('aria-label').includes('12345678'), 'sheet anuncia el DNI del titular');
     assert(window.document.getElementById('mobile-sheet-content').textContent.includes('JUAN'), 'sheet muestra la persona');
     sheet.querySelector('.sheet__close').click();
     await wait(120);
@@ -377,6 +379,7 @@ function assert(cond, msg) {
     window.document.getElementById('btn-search').click();
     await wait(240);
     assert(window.document.getElementById('consultas-count').textContent === '77', 'cabecera sincroniza saldo exacto');
+    assert(window.document.getElementById('consultas-badge').getAttribute('aria-label') === 'Consultas disponibles: 77', 'badge anuncia el saldo');
 
     const meCalls = calls.filter((u) => u.includes('/api/auth/me')).length;
     window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
