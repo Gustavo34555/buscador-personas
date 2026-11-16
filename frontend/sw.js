@@ -1,11 +1,11 @@
 /* Service worker: stale-while-revalidate para estáticos y network-first para navegación.
    Nunca cachea API, datos personales, C4 ni respuestas autenticadas. */
-const CACHE_NAME = 'buscador-personas-v17';
+const CACHE_NAME = 'buscador-personas-v18';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/styles.css?v=2.9',
-  '/app.js?v=2.15',
+  '/app.js?v=2.16',
   '/theme.js',
   '/manifest.json',
   '/icon.svg',

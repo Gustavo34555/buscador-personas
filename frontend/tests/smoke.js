@@ -125,6 +125,11 @@ function assert(cond, msg) {
     assert(window.document.getElementById('login-user').getAttribute('autocomplete') === 'username', 'autocomplete usuario');
     assert(window.document.getElementById('login-pass').getAttribute('autocomplete') === 'current-password', 'autocomplete contraseña');
 
+    window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+    await wait(120);
+    assert(!window.document.getElementById('quick-search-modal').classList.contains('open'), 'Ctrl+K no abre búsqueda sin sesión');
+    assert(window.document.activeElement === window.document.getElementById('login-user'), 'atajos no roban el foco del login');
+
     window.document.getElementById('login-user').value = 'admin';
     window.document.getElementById('login-pass').value = 'secreto';
     window.document.getElementById('login-form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));

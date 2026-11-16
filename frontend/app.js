@@ -3128,6 +3128,10 @@
 
   /* ── Keyboard shortcuts & navigation ─────────────────────── */
   document.addEventListener('keydown', (e) => {
+    // Con el login visible, los atajos de la aplicación no deben abrir
+    // diálogos ni mover el foco detrás de la capa de autenticación.
+    if (document.body.classList.contains('login-visible')) return;
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       openQS();
