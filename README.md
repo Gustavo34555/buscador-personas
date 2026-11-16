@@ -24,7 +24,7 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 - **PWA** con Service Worker stale-while-revalidate, aviso de actualización y sin caché de respuestas personales o autenticadas.
 - **Caché de estáticos**: assets versionados con `immutable`, fuentes y SVG con caché semanal, y shell HTML/service worker siempre revalidables, también cuando FastAPI sirve el frontend sin Nginx.
 - **Caché de búsquedas**: resultados principales y de búsqueda rápida en memoria durante 3-5 minutos, acotados por número de entradas y limpiados al cerrar sesión o expirar la cookie.
-- **Resiliencia de red**: timeout de 25 s en las llamadas API, aborto de búsquedas obsoletas, mensajes claros de espera agotada y compresión gzip para respuestas JSON grandes.
+- **Resiliencia de red**: timeout de 25 s en las llamadas API, aborto de búsquedas obsoletas y al cerrar sesión, mensajes claros de espera agotada y compresión gzip para respuestas JSON grandes.
 
 ---
 

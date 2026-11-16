@@ -486,6 +486,38 @@ function assert(cond, msg) {
     dom.window.close();
   }
 
+  // 13. Árbol y C4 sincronizan cuota sin pedir /api/auth/me de nuevo.
+  {
+    const { dom, window, calls } = makeDom('http://127.0.0.1:8000/?dni=12345678', { authenticated: true, admin: false });
+    const baseFetch = window.fetch;
+    window.fetch = async (input, init) => {
+      const url = String(input);
+      const res = await baseFetch(input, init);
+      if (url.includes('/arbol') || url.includes('/c4')) {
+        const restantes = url.includes('/arbol') ? '39' : '38';
+        res.headers = { get: (name) => name === 'X-Consultas-Restantes' ? restantes : null };
+      }
+      return res;
+    };
+    await wait(260);
+    const meCalls = () => calls.filter((u) => u.includes('/api/auth/me')).length;
+    const before = meCalls();
+
+    window.document.getElementById('btn-tree').click();
+    await wait(180);
+    assert(window.document.getElementById('tree-modal').classList.contains('open'), 'árbol abierto');
+    assert(window.document.getElementById('consultas-count').textContent === '39', 'árbol sincroniza cuota');
+    window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(60);
+
+    window.document.getElementById('btn-c4-direct').click();
+    await wait(180);
+    assert(window.document.getElementById('c4-modal').classList.contains('open'), 'C4 abierto');
+    assert(window.document.getElementById('consultas-count').textContent === '38', 'C4 sincroniza cuota');
+    assert(meCalls() === before, 'árbol y C4 no piden /api/auth/me extra');
+    dom.window.close();
+  }
+
   console.log('SMOKE OK');
   process.exit(0);
 })().catch((err) => {

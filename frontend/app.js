@@ -1484,7 +1484,12 @@
     try {
       const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/arbol?limite=${limite}`, { headers: apiHeaders() });
       if (requestToken !== treeRequestToken) return;
+      applyQuotaFromResponse(res);
       if (!res.ok) {
+        if (res.status === 403) {
+          _consultasRestantes = 0;
+          updateConsultasBadge();
+        }
         const body = await res.json().catch(() => null);
         if (requestToken !== treeRequestToken) return;
         treeContainer.innerHTML = `<div class="tree-empty">
@@ -1504,7 +1509,6 @@
         oldest.forEach(([key]) => treeCache.delete(key));
       }
       renderArbol(data);
-      refreshUserInfo();
     } catch (e) {
       if (requestToken !== treeRequestToken) return;
       const timedOut = e && e.name === 'AbortError';
@@ -2054,14 +2058,18 @@
     try {
       const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/c4`, { headers: apiHeaders() });
       if (requestToken !== c4RequestToken) return;
+      applyQuotaFromResponse(res);
       if (res.ok) {
         const data = await res.json();
         if (requestToken !== c4RequestToken) return;
         renderC4Certificate(data);
-        refreshUserInfo();
         return;
       }
 
+      if (res.status === 403) {
+        _consultasRestantes = 0;
+        updateConsultasBadge();
+      }
       const body = await res.json().catch(() => null);
       if (requestToken !== c4RequestToken) return;
       c4Container.innerHTML = `<div class="c4-loading">
