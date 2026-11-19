@@ -112,7 +112,7 @@ app.add_middleware(
     expose_headers=["Retry-After", "X-Request-ID", "Server-Timing", "X-Consultas-Restantes"],
 )
 
-# Comprime JSON grandes (búsquedas, árboles, C4) también cuando FastAPI se
+# Comprime JSON grandes (búsquedas, árboles) también cuando FastAPI se
 # despliega sin Nginx. Nivel 6: buena relación tamaño/CPU.
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 

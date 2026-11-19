@@ -2,8 +2,6 @@
 
 Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con API FastAPI, autenticación por cookie HttpOnly, búsqueda familiar con niveles de confianza y frontend estático sin dependencias.
 
-> **Aviso:** la ficha C4 que genera este proyecto es un **documento de referencia no oficial**. No es un certificado de RENIEC y no tiene validez legal.
-
 ---
 
 ## Características principales
@@ -15,9 +13,8 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 - **API keys de solo lectura**: las integraciones con `X-API-Key` no pueden acceder a endpoints de administración.
 - **Cuotas atómicas**: descuento y reembolso de consultas ante errores o resultados no encontrados, con el saldo restante en `X-Consultas-Restantes` para que el frontend no haga peticiones extra.
 - **Caché opcional con Redis**: si no hay `REDIS_URL`, se usa caché en memoria. Las claves de búsqueda se normalizan (tildes incluidas) y los DNI inexistentes se recuerdan brevemente para evitar consultas repetidas.
-- **Ficha C4 de referencia**: claramente etiquetada como no oficial, sin logotipos ni leyendas de RENIEC.
 - **Exportación CSV/JSON** con protección contra inyección de fórmulas.
-- **Interfaz productiva**: vista de tarjetas o tabla ordenable, panel de detalle redimensionable y colapsable, estado compartible en la URL, enlaces directos por DNI (`?dni=12345678`), historial real del navegador y atajos de teclado (`/`, `↑`/`↓`, `T`, `C`, `Ctrl+K`, `?`). La búsqueda rápida se navega con `↑`/`↓` y se abre con `Enter`.
+- **Interfaz productiva**: vista de tarjetas o tabla ordenable, panel de detalle redimensionable y colapsable, estado compartible en la URL, enlaces directos por DNI (`?dni=12345678`), historial real del navegador y atajos de teclado (`/`, `↑`/`↓`, `T`, `Ctrl+K`, `?`). La búsqueda rápida se navega con `↑`/`↓` y se abre con `Enter`.
 - **Accesibilidad**: enlace para saltar a la búsqueda, foco visible, diálogos con `aria-modal`/`inert`, cierre con `Escape`, trampa de foco, búsqueda rápida con patrón combobox/listbox, tarjetas con botón principal real sin controles anidados y panel de administración operable por teclado.
 - **Árbol familiar eficiente**: render progresivo por lotes, caché de cinco minutos, vista de grafo o lista por pestañas y controles táctiles de 44 px.
 - **Rendimiento móvil**: tipografía Inter local, `content-visibility`, `100dvh`, áreas seguras, acciones de 44 px y ampliación del área táctil de los iconos pequeños sin cambiar su tamaño visual, con animaciones desactivadas si el usuario prefiere menos movimiento.
@@ -130,7 +127,7 @@ El frontend puede servirse con Nginx o con cualquier servidor estático apuntand
 
 ```bash
 cd backend
-pytest -q          # 67 pruebas
+pytest -q          # 65 pruebas
 ruff check .
 
 # Smoke tests de interfaz (escritorio y móvil) con jsdom
@@ -155,7 +152,6 @@ npm test
 | GET | `/persona/{dni}` | Consulta una persona por DNI |
 | GET | `/buscar?q={texto}&limit=20` | Búsqueda ponderada por nombres o apellidos |
 | GET | `/persona/{dni}/arbol?limite=200` | Árbol familiar con confianza, evidencia y alternativas (máximo 200 por relación) |
-| GET | `/persona/{dni}/c4` | Ficha de referencia no oficial |
 | GET | `/scraping/ruc/{dni}` | Consulta de RUC en SUNAT |
 | GET | `/api/status` | Healthcheck con ping a PostgreSQL |
 

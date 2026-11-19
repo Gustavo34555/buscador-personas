@@ -152,21 +152,6 @@ class ArbolResponse(BaseModel):
     meta: ArbolMeta | None = None
 
 
-class FichaReferenciaC4Response(BaseModel):
-    """Ficha de referencia generada a partir de los datos del padrón.
-
-    No reproduce un certificado oficial: solo incluye un código interno de
-    referencia y los datos consultados. No hay MRZ, firma digital ni URL de
-    verificación porque el documento no tiene validez legal.
-    """
-
-    codigo_referencia: str
-    fecha_generacion: str
-    persona: PersonaResponse
-    es_oficial: bool = False
-    aviso: str | None = None
-
-
 # ── Auth & Admin Schemas ──────────────────────────────────────
 
 

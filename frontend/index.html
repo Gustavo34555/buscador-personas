@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=2.9">
+  <link rel="stylesheet" href="styles.css?v=3.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
@@ -230,36 +230,6 @@
     </div>
   </div>
 
-  <!-- Ficha de referencia (no oficial) Modal -->
-  <div id="c4-modal" class="c4-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Ficha de referencia — datos del padrón">
-    <div class="c4-backdrop" data-close-c4></div>
-    <div class="c4-panel">
-      <div class="c4-panel__header">
-        <div class="c4-panel__title">
-          <span class="material-symbols-outlined" style="color:#38bdf8">description</span>
-          <span>Ficha de referencia — datos del padrón (no oficial)</span>
-        </div>
-        <div class="c4-panel__actions">
-          <button id="btn-print-c4" class="btn-print-c4" title="Imprimir ficha o guardar en PDF">
-            <span class="material-symbols-outlined">print</span>
-            <span class="btn-print-c4__label">Imprimir / PDF</span>
-          </button>
-          <button id="btn-close-c4" class="c4-panel__close" title="Cerrar">
-            <span class="material-symbols-outlined">close</span>
-          </button>
-        </div>
-      </div>
-      <div class="c4-panel__body">
-        <div id="c4-container" class="c4-container">
-          <div class="c4-loading">
-            <div class="qs-spinner"></div>
-            <p>Generando ficha de referencia (no oficial)...</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <header class="header" inert>
     <div class="header__inner">
       <div class="header__brand">
@@ -466,6 +436,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=2.16"></script>
+  <script src="app.js?v=2.17"></script>
 </body>
 </html>

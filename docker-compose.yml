@@ -29,7 +29,6 @@ services:
       APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL en el archivo .env}
       ALLOW_OPEN_ACCESS: "false"
-      ENABLE_C4: ${ENABLE_C4:-false}
       # Nginx es el único punto de entrada; confía en sus cabeceras de proxy
       # para que el rate limiting y la auditoría usen la IP real del cliente.
       FORWARDED_ALLOW_IPS: "*"

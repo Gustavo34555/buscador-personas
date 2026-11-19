@@ -1,11 +1,11 @@
 /* Service worker: stale-while-revalidate para estáticos y network-first para navegación.
-   Nunca cachea API, datos personales, C4 ni respuestas autenticadas. */
-const CACHE_NAME = 'buscador-personas-v18';
+   Nunca cachea API, datos personales ni respuestas autenticadas. */
+const CACHE_NAME = 'buscador-personas-v19';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/styles.css?v=2.9',
-  '/app.js?v=2.16',
+  '/styles.css?v=3.0',
+  '/app.js?v=2.17',
   '/theme.js',
   '/manifest.json',
   '/icon.svg',
@@ -38,8 +38,7 @@ function isPrivateRequest(url) {
   return url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/persona/') ||
     url.pathname.startsWith('/buscar') ||
-    url.pathname.startsWith('/scraping/') ||
-    url.pathname.startsWith('/c4');
+    url.pathname.startsWith('/scraping/');
 }
 
 const STATIC_DESTINATIONS = new Set(['style', 'script', 'font', 'image', 'manifest']);

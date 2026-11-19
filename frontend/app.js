@@ -111,10 +111,6 @@
   const btnTreeDownload    = $('btn-tree-download');
   const btnTreeViewGraph   = $('btn-tree-view-graph');
   const btnTreeViewList    = $('btn-tree-view-list');
-  const c4Modal            = $('c4-modal');
-  const c4Container        = $('c4-container');
-  const btnCloseC4         = $('btn-close-c4');
-  const btnPrintC4         = $('btn-print-c4');
   const btnThemeToggle     = $('btn-theme-toggle');
   const dniCounter         = $('dni-counter');
   const modeGlider         = $('mode-glider');
@@ -194,15 +190,13 @@
   let treeNeedsFit = false;
   let treeVisible = { hermanos: 12, hijos: 12, probables: 8, hijosProbables: 8 };
   let treeRequestToken = 0;
-  let c4RequestToken = 0;
   let lastFocusedElement = null;
-  let lastFocusedC4 = null;
   let lastFocusedQS = null;
   let lastFocusedAdmin = null;
 
   function updateBodyScrollLock() {
     const adminEl = document.getElementById('admin-overlay');
-    const anyOpen = [treeModal, c4Modal, qsModal, mobileSheet]
+    const anyOpen = [treeModal, qsModal, mobileSheet]
       .some((el) => el && el.classList.contains('open')) ||
       (adminEl && adminEl.classList.contains('show'));
     document.body.style.overflow = anyOpen ? 'hidden' : '';
@@ -234,7 +228,6 @@
   }
 
   function activeModalElement() {
-    if (c4Modal && c4Modal.classList.contains('open')) return c4Modal.querySelector('.c4-panel');
     if (treeModal && treeModal.classList.contains('open')) return treeModal.querySelector('.tree-panel');
     if (qsModal && qsModal.classList.contains('open')) return qsModal.querySelector('.qs-panel');
     if (mobileSheet && mobileSheet.classList.contains('open')) return mobileSheet;
@@ -636,10 +629,6 @@
             <span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">account_tree</span>
             <span>Árbol</span>
           </button>
-          <button class="btn-inline-action btn-inline-action--c4" data-inline-action="c4" data-dni="${escHtml(p.dni)}" title="Ficha de referencia (no oficial)">
-            <span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">print</span>
-            <span>C4</span>
-          </button>
           <button class="btn-inline-action" data-inline-action="copy" data-index="${i}">
             <span class="material-symbols-outlined" style="font-size:15px" aria-hidden="true">content_copy</span>
             <span>Copiar</span>
@@ -829,7 +818,6 @@
       const dni = actionBtn.getAttribute('data-dni');
       const idx = Number(actionBtn.getAttribute('data-index'));
       if (action === 'tree') openTreeModal(dni);
-      else if (action === 'c4') openC4Modal(dni);
       else if (action === 'copy' && resultadosVista[idx]) copyResultSummary(resultadosVista[idx]);
       return;
     }
@@ -948,7 +936,7 @@
           <div class="dni-card__chip"></div>
           <div class="dni-card__header">
             <div class="dni-card__avatar">
-              <span class="material-symbols-outlined" style="font-size:32px; color: ${g === 'F' ? 'var(--pink)' : 'var(--blue)'}">${g === 'F' ? 'woman' : 'person'}</span>
+              <span class="material-symbols-outlined" style="font-size:32px; color: ${g === 'F' ? '#f472b6' : '#38bdf8'}">${g === 'F' ? 'woman' : 'person'}</span>
             </div>
             <div style="flex:1; min-width:0;">
               <h3 class="dni-card__name">${escHtml(n || '-')}</h3>
@@ -973,10 +961,6 @@
           <button class="btn-action" id="btn-tree" title="Ver árbol genealógico" aria-keyshortcuts="T">
             <span class="material-symbols-outlined">account_tree</span>
             <span>Árbol</span>
-          </button>
-          <button class="btn-action" id="btn-c4-direct" title="Ver ficha de referencia (no oficial)" aria-keyshortcuts="C">
-            <span class="material-symbols-outlined" style="color:#38bdf8">description</span>
-            <span>C4</span>
           </button>
           <button class="btn-action btn-action--icon" id="btn-copy-link" title="Copiar enlace directo a esta persona" aria-label="Copiar enlace directo a esta persona">
             <span class="material-symbols-outlined" aria-hidden="true">link</span>
@@ -1243,10 +1227,6 @@
       treeBtn.addEventListener('click', () => openTreeModal(p.dni));
     }
 
-    const c4DirectBtn = container.querySelector('#btn-c4-direct');
-    if (c4DirectBtn) {
-      c4DirectBtn.addEventListener('click', () => openC4Modal(p.dni));
-    }
   }
 
   /* ═══════════════════════════════════════════════════════════════════
@@ -1574,10 +1554,6 @@
       <button class="btn-node-mini" type="button" data-tree-action="detail" data-dni="${escHtml(nodo.dni)}" title="Ver Ficha Completa">
         <span class="material-symbols-outlined" style="font-size:11px" aria-hidden="true">visibility</span>
         <span>Ficha</span>
-      </button>
-      <button class="btn-node-mini" type="button" data-tree-action="c4" data-dni="${escHtml(nodo.dni)}" title="Generar ficha de referencia (no oficial)">
-        <span class="material-symbols-outlined" style="font-size:11px" aria-hidden="true">print</span>
-        <span>C4</span>
       </button>
     </div>`;
   }
@@ -2001,9 +1977,6 @@
         searchInput.value = nodeDni;
         btnClearSearch.classList.add('visible');
         search();
-      } else if (action === 'c4') {
-        closeTreeModal();
-        openC4Modal(nodeDni);
       }
       return;
     }
@@ -2039,269 +2012,6 @@
     treeContainer.addEventListener('click', handleTreeClick);
     treeContainer.addEventListener('keydown', handleTreeKeydown);
   }
-
-  /* ═══════════════════════════════════════════════════════════════════
-     FICHA DE REFERENCIA C4 — DATOS DEL PADRÓN (NO OFICIAL)
-     ═══════════════════════════════════════════════════════════════════ */
-  async function openC4Modal(dni) {
-    if (!c4Modal) return;
-    const requestToken = ++c4RequestToken;
-    if (!c4Modal.classList.contains('open')) lastFocusedC4 = document.activeElement;
-
-    c4Modal.classList.add('open');
-    c4Modal.removeAttribute('inert');
-    c4Modal.setAttribute('aria-hidden', 'false');
-    updateBodyScrollLock();
-    c4Container.innerHTML = '<div class="c4-loading"><div class="qs-spinner"></div><p>Generando ficha de referencia (no oficial)...</p></div>';
-    setTimeout(() => { if (btnCloseC4) btnCloseC4.focus(); }, 60);
-
-    try {
-      const res = await apiFetch(`${API_BASE}/persona/${encodeURIComponent(dni)}/c4`, { headers: apiHeaders() });
-      if (requestToken !== c4RequestToken) return;
-      applyQuotaFromResponse(res);
-      if (res.ok) {
-        const data = await res.json();
-        if (requestToken !== c4RequestToken) return;
-        renderC4Certificate(data);
-        return;
-      }
-
-      if (res.status === 403) {
-        _consultasRestantes = 0;
-        updateConsultasBadge();
-      }
-      const body = await res.json().catch(() => null);
-      if (requestToken !== c4RequestToken) return;
-      c4Container.innerHTML = `<div class="c4-loading">
-        <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">info</span>
-        <p>${escHtml((body && body.detail) || 'No se pudo generar la ficha de referencia')}</p>
-      </div>`;
-    } catch (e) {
-      if (requestToken !== c4RequestToken) return;
-      const timedOut = e && e.name === 'AbortError';
-      c4Container.innerHTML = `<div class="c4-loading">
-        <span class="material-symbols-outlined" style="font-size:36px;color:var(--text-5)">cloud_off</span>
-        <p>${timedOut ? 'La consulta tardó demasiado. Intenta de nuevo.' : 'Error de conexión al generar la ficha'}</p>
-      </div>`;
-    }
-  }
-
-  function closeC4Modal() {
-    if (!c4Modal) return;
-    c4RequestToken += 1;
-    c4Modal.classList.remove('open');
-    updateBodyScrollLock();
-    if (lastFocusedC4 && typeof lastFocusedC4.focus === 'function') lastFocusedC4.focus();
-    c4Modal.setAttribute('aria-hidden', 'true');
-    c4Modal.setAttribute('inert', '');
-  }
-
-  if (btnCloseC4) btnCloseC4.addEventListener('click', closeC4Modal);
-  if (btnPrintC4) btnPrintC4.addEventListener('click', () => window.print());
-  document.querySelectorAll('[data-close-c4]').forEach(el => el.addEventListener('click', closeC4Modal));
-
-  /* ── Logo neutro de la ficha de referencia ────────────────── */
-  function generateReferenceLogoSVG() {
-    return `<svg viewBox="0 0 240 68" width="180" height="52" xmlns="http://www.w3.org/2000/svg" aria-label="Buscador de Personas">
-      <rect x="4" y="4" width="232" height="60" rx="8" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
-      <circle cx="30" cy="30" r="12" fill="none" stroke="#818cf8" stroke-width="2.5"/>
-      <path d="M15 54c0-7 6-13 15-13s15 6 15 13" fill="none" stroke="#818cf8" stroke-width="2.5"/>
-      <circle cx="45" cy="47" r="7" fill="#0f172a" stroke="#38bdf8" stroke-width="2"/>
-      <line x1="50" y1="52" x2="57" y2="59" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round"/>
-      <text x="66" y="30" fill="#f8fafc" font-family="Arial, sans-serif" font-size="15" font-weight="bold">Buscador de Personas</text>
-      <text x="66" y="47" fill="#94a3b8" font-family="Arial, sans-serif" font-size="9">Ficha de referencia — no oficial</text>
-    </svg>`;
-  }
-
-  function parseUbigeoParts(ubigeoStr) {
-    if (!ubigeoStr) return { dpto: '-', prov: '-', dist: '-' };
-    const str = String(ubigeoStr).trim().toUpperCase();
-
-    if (str.includes('/')) {
-      const parts = str.split('/').map(s => s.trim());
-      return {
-        dpto: parts[0] || '-',
-        prov: parts[1] || parts[0] || '-',
-        dist: parts[2] || parts[1] || parts[0] || '-'
-      };
-    }
-    if (str.includes('-')) {
-      const parts = str.split('-').map(s => s.trim());
-      if (parts.length >= 3) {
-        return { dpto: parts[0], prov: parts[1], dist: parts[2] };
-      }
-      if (parts.length === 2) {
-        return { dpto: parts[0], prov: parts[0], dist: parts[1] };
-      }
-    }
-    return { dpto: str, prov: str, dist: str };
-  }
-
-  function renderC4Certificate(data) {
-    const p = data.persona || {};
-    const nac = parseUbigeoParts(p.ubigeo_nac);
-    const dom = parseUbigeoParts(p.ubigeo_dir);
-
-    const ahora = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const fEmision = data.fecha_generacion || `${pad(ahora.getDate())}/${pad(ahora.getMonth()+1)}/${ahora.getFullYear()} ${pad(ahora.getHours())}:${pad(ahora.getMinutes())}:${pad(ahora.getSeconds())}`;
-    const codigoRef = data.codigo_referencia || '';
-
-    const html = `
-      <div class="c4-document" id="c4-document">
-        <!-- Watermark text -->
-        <div class="reniec-watermark-text">REFERENCIA</div>
-
-        <div class="c4-disclaimer" role="note">
-          <span class="material-symbols-outlined" style="font-size:16px">info</span>
-          <span>${escHtml(data.aviso || 'Documento de referencia generado a partir de los datos del padrón. No es un certificado oficial de RENIEC y no tiene validez legal.')}</span>
-        </div>
-
-        <div>
-          <!-- 1. Encabezado de referencia -->
-          <div class="reniec-sheet__header">
-            <div class="reniec-sheet__logo">${generateReferenceLogoSVG()}</div>
-            <div class="reniec-sheet__header-titles">
-              <h1>FICHA DE REFERENCIA DE IDENTIFICACIÓN</h1>
-              <h2>DATOS DEL PADRÓN CONSULTADO — NO OFICIAL</h2>
-            </div>
-          </div>
-          <div class="reniec-sheet__divider"></div>
-
-          <!-- 2. Cuerpo Estructurado de Datos -->
-          <div class="reniec-fields-list">
-            <!-- DNI -->
-            <div class="reniec-row">
-              <div class="reniec-label">DNI:</div>
-              <div class="reniec-value">${escHtml(p.dni || '-')}</div>
-            </div>
-
-            <!-- Apellido Paterno -->
-            <div class="reniec-row">
-              <div class="reniec-label">Apellido Paterno:</div>
-              <div class="reniec-value">${escHtml(p.ap_pat || '-')}</div>
-            </div>
-
-            <!-- Apellido Materno -->
-            <div class="reniec-row">
-              <div class="reniec-label">Apellido Materno:</div>
-              <div class="reniec-value">${escHtml(p.ap_mat || '-')}</div>
-            </div>
-
-            <!-- Nombres -->
-            <div class="reniec-row">
-              <div class="reniec-label">Nombres:</div>
-              <div class="reniec-value">${escHtml(p.nombres || '-')}</div>
-            </div>
-
-            <!-- Nacimiento -->
-            <div class="reniec-row reniec-row--nested">
-              <div class="reniec-label">Nacimiento:</div>
-              <div class="reniec-subfields">
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Fecha:</span>
-                  <span class="reniec-value">${escHtml(p.fecha_nac || '-')}</span>
-                </div>
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Ubigeo:</span>
-                  <span class="reniec-value">${escHtml(p.ubigeo_nac || '-')}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Estado Civil -->
-            <div class="reniec-row">
-              <div class="reniec-label">Estado Civil:</div>
-              <div class="reniec-value">${escHtml(p.est_civil || '-')}</div>
-            </div>
-
-            <!-- Fecha de Inscripción -->
-            <div class="reniec-row">
-              <div class="reniec-label">Fecha de Inscripción:</div>
-              <div class="reniec-value">${escHtml(p.fch_inscripcion || '-')}</div>
-            </div>
-
-            <!-- Nombre del Padre -->
-            <div class="reniec-row">
-              <div class="reniec-label">Nombre del Padre:</div>
-              <div class="reniec-value">${escHtml(p.padre || '-')}</div>
-            </div>
-
-            <!-- Nombre de la Madre -->
-            <div class="reniec-row">
-              <div class="reniec-label">Nombre de la Madre:</div>
-              <div class="reniec-value">${escHtml(p.madre || '-')}</div>
-            </div>
-
-            <!-- Fecha de Emisión del DNI -->
-            <div class="reniec-row">
-              <div class="reniec-label">Emisión del DNI:</div>
-              <div class="reniec-value">${escHtml(p.fch_emision || '-')}</div>
-            </div>
-
-            <!-- Domicilio -->
-            <div class="reniec-row reniec-row--nested">
-              <div class="reniec-label">Domicilio:</div>
-              <div class="reniec-subfields">
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Departamento:</span>
-                  <span class="reniec-value">${escHtml(dom.dpto)}</span>
-                </div>
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Provincia:</span>
-                  <span class="reniec-value">${escHtml(dom.prov)}</span>
-                </div>
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Distrito:</span>
-                  <span class="reniec-value">${escHtml(dom.dist)}</span>
-                </div>
-                <div class="reniec-subrow">
-                  <span class="reniec-sublabel">Dirección:</span>
-                  <span class="reniec-value">${escHtml(p.direccion || '-')}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Fecha de Caducidad del DNI -->
-            <div class="reniec-row">
-              <div class="reniec-label">Caducidad del DNI:</div>
-              <div class="reniec-value">${escHtml(p.fch_caducidad || '-')}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 3. Información de la Consulta Footer -->
-        <div class="reniec-sheet__footer">
-          <div class="reniec-consult-title">Información de la Consulta:</div>
-          <div class="reniec-consult-grid">
-            <div class="reniec-consult-row">
-              <span class="reniec-consult-lbl">Usuario:</span>
-              <span class="reniec-consult-val">${escHtml(_username || '-')}</span>
-            </div>
-            <div class="reniec-consult-row">
-              <span class="reniec-consult-lbl">Código de referencia:</span>
-              <span class="reniec-consult-val">${escHtml(codigoRef || '-')}</span>
-            </div>
-            <div class="reniec-consult-row">
-              <span class="reniec-consult-lbl">Entidad:</span>
-              <span class="reniec-consult-val">Buscador de Personas</span>
-            </div>
-            <div class="reniec-consult-row">
-              <span class="reniec-consult-lbl">Validez:</span>
-              <span class="reniec-consult-val">Documento de referencia sin validez legal</span>
-            </div>
-          </div>
-
-          <div class="reniec-sheet__bottom-stamp">
-            Ficha de referencia generada por Buscador de Personas — no oficial · ${escHtml(fEmision)}
-          </div>
-        </div>
-      </div>
-    `;
-
-    c4Container.innerHTML = html;
-  }
-
 
   function showDetail(p, index, expand = false, options = {}) {
     const token = ++detailRenderToken;
@@ -3138,7 +2848,6 @@
       return;
     }
     if (e.key === 'Escape') {
-      if (c4Modal && c4Modal.classList.contains('open')) { closeC4Modal(); return; }
       if (treeModal && treeModal.classList.contains('open')) { closeTreeModal(); return; }
       if (qsModal && qsModal.classList.contains('open')) { closeQS(); return; }
       if (mobileSheet && mobileSheet.classList.contains('open')) { closeMobileSheet(); return; }
@@ -3146,7 +2855,6 @@
     }
 
     const modalOpen = (treeModal && treeModal.classList.contains('open')) ||
-      (c4Modal && c4Modal.classList.contains('open')) ||
       (qsModal && qsModal.classList.contains('open')) ||
       (mobileSheet && mobileSheet.classList.contains('open')) ||
       (adminOverlay && adminOverlay.classList.contains('show'));
@@ -3168,14 +2876,9 @@
         openTreeModal(personaSeleccionada.dni);
         return;
       }
-      if ((e.key === 'c' || e.key === 'C') && personaSeleccionada) {
-        e.preventDefault();
-        openC4Modal(personaSeleccionada.dni);
-        return;
-      }
       if (e.key === '?') {
         e.preventDefault();
-        toast('Atajos: / buscar · ↑↓ navegar · T árbol · C ficha · Ctrl+K búsqueda rápida · Esc cerrar', 'info', { duration: 6500 });
+        toast('Atajos: / buscar · ↑↓ navegar · T árbol · Ctrl+K búsqueda rápida · Esc cerrar', 'info', { duration: 6500 });
         return;
       }
     }
@@ -3352,7 +3055,6 @@
     treeData = null;
     treeRootDni = null;
     treeRequestToken += 1;
-    c4RequestToken += 1;
     resultados = [];
     resultadosVista = [];
     resetSearchView();
@@ -3361,11 +3063,9 @@
     if (treeContainer) treeContainer.innerHTML = '';
     if (treeTitularBadge) treeTitularBadge.textContent = '';
     if (treeStatsBar) treeStatsBar.innerHTML = '';
-    if (c4Container) c4Container.innerHTML = '';
     if (qsResults) qsResults.innerHTML = '<p class="qs-empty">Escribe para buscar al instante...</p>';
     if (adminTableBody) adminTableBody.innerHTML = '';
     lastFocusedElement = null;
-    lastFocusedC4 = null;
     lastFocusedQS = null;
     lastFocusedAdmin = null;
     try { localStorage.removeItem('recent_searches'); } catch { /* sin almacenamiento */ }
@@ -3385,7 +3085,6 @@
       btnTogglePassword.setAttribute('aria-label', 'Mostrar contraseña');
     }
     closeAdminPanel({ restoreFocus: false });
-    if (c4Modal && c4Modal.classList.contains('open')) closeC4Modal();
     if (treeModal && treeModal.classList.contains('open')) closeTreeModal();
     if (qsModal && qsModal.classList.contains('open')) closeQS();
     if (mobileSheet && mobileSheet.classList.contains('open')) closeMobileSheet();

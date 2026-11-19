@@ -10,13 +10,12 @@ from app.config import (
     ARBOL_CACHE_TTL,
     BUSCAR_CACHE_TTL,
     DNI_CACHE_TTL,
-    ENABLE_C4,
     FAMILIA_LIMITE_DEFAULT,
     FAMILIA_LIMITE_MAX,
     NEGATIVE_CACHE_TTL,
 )
 from app.dependencies import get_client_host, verify_search_rate_limit
-from app.schemas import ArbolResponse, FichaReferenciaC4Response, PersonaBusquedaItem, PersonaResponse
+from app.schemas import ArbolResponse, PersonaBusquedaItem, PersonaResponse
 from app.security import require_jwt_auth
 from app.services import auditoria_service, auth_service, persona_service
 
@@ -30,11 +29,6 @@ arbol_cache = build_cache("arbol", maxsize=500, ttl=ARBOL_CACHE_TTL)
 # Evita repetir consultas a la base para DNIs inexistentes (también frena
 # intentos de enumeración). Es independiente de la cuota: un 404 se reembolsa.
 dni_negative_cache = build_cache("dni_negative", maxsize=2000, ttl=NEGATIVE_CACHE_TTL)
-
-_AVISO_C4 = (
-    "Documento de referencia generado a partir de los datos del padrón. "
-    "No es un certificado oficial de RENIEC y no tiene validez legal."
-)
 
 
 def _normalize_text(text: str) -> str:
@@ -232,75 +226,3 @@ async def arbol_genealogico(
     arbol_cache.set(cache_key, arbol)
     _set_quota_header(response, restantes)
     return arbol
-
-
-@router.get("/persona/{dni}/c4", response_model=FichaReferenciaC4Response)
-async def obtener_ficha_referencia_c4(
-    dni: str,
-    request: Request,
-    response: Response,
-    background_tasks: BackgroundTasks,
-    _rate_limit: None = Depends(verify_search_rate_limit),
-    user_payload: dict = Depends(require_jwt_auth),
-):
-    """Genera una ficha de referencia con los datos del padrón.
-
-    No es un certificado oficial de RENIEC. La respuesta lo indica de forma
-    explícita mediante ``es_oficial=False`` y ``aviso``; tampoco inventa MRZ,
-    firma digital ni URL de verificación.
-    """
-    import hashlib
-    from datetime import datetime
-
-    if not ENABLE_C4:
-        raise HTTPException(
-            status_code=404,
-            detail="La generación de fichas C4 está deshabilitada en este entorno",
-        )
-
-    if not (dni.isdigit() and len(dni) == 8):
-        raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
-
-    consumida, restantes = _consumir_consulta(user_payload)
-
-    if dni_negative_cache.get(dni) is not None:
-        _reembolsar_consulta(user_payload, consumida)
-        raise HTTPException(status_code=404, detail="Persona no encontrada")
-
-    cached = dni_cache.get(dni)
-    if cached is not None:
-        fila = cached
-        _set_quota_header(response, restantes)
-    else:
-        try:
-            fila = await asyncio.to_thread(persona_service.obtener_por_dni, dni)
-        except SQLAlchemyError as e:
-            _reembolsar_consulta(user_payload, consumida)
-            logger.exception("Error al consultar la base de datos para C4")
-            raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
-
-        if not fila:
-            dni_negative_cache.set(dni, True)
-            _reembolsar_consulta(user_payload, consumida)
-            raise HTTPException(status_code=404, detail="Persona no encontrada")
-        fila = dict(fila)
-        dni_negative_cache.delete(dni)
-        dni_cache.set(dni, fila)
-        _set_quota_header(response, restantes)
-
-    ahora = datetime.now()
-    fecha_generacion = ahora.strftime("%d/%m/%Y %H:%M:%S")
-
-    # Código interno de referencia, no un certificado ni una firma digital.
-    raw_ref = f"{dni}:{ahora.strftime('%Y%m%d%H%M%S')}:REFERENCIA_C4"
-    codigo_referencia = "REF-" + hashlib.sha256(raw_ref.encode()).hexdigest()[:12].upper()
-
-    background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "c4", dni)
-
-    return {
-        "codigo_referencia": codigo_referencia,
-        "fecha_generacion": fecha_generacion,
-        "persona": fila,
-        "es_oficial": False,
-        "aviso": _AVISO_C4,
-    }

@@ -152,26 +152,6 @@ def test_arbol_persona_encontrada(client, monkeypatch):
     assert "meta" in body
 
 
-def test_c4_dni_invalido(client):
-    res = client.get("/persona/123/c4")
-    assert res.status_code == 400
-
-
-def test_c4_persona_encontrada(client, monkeypatch):
-    _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
-    res = client.get("/persona/12345678/c4")
-    assert res.status_code == 200
-    body = res.json()
-    assert body["codigo_referencia"].startswith("REF-")
-    assert body["fecha_generacion"]
-    assert body["es_oficial"] is False
-    assert body["aviso"]
-    assert "mrz_linea1" not in body
-    assert "firma_digital" not in body
-    assert "url_verificacion" not in body
-    assert body["persona"]["dni"] == "12345678"
-
-
 def test_headers_privacidad_y_timing(client):
     res = client.get("/persona/123")
     assert res.status_code == 400
