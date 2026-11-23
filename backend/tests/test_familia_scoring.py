@@ -202,8 +202,8 @@ def test_medio_hermano_requiere_contexto_aun_con_nombre_fuerte():
 
     con_contexto = {
         **base,
-        "ubigeo_nac": "150102",
-        "ubigeo_dir": "LIMA-LIMA-SAN MARTIN DE PORRES",
+        "ubigeo_nac": "150101",
+        "ubigeo_dir": "LIMA-LIMA-LIMA",
         "direccion": "CALLE OTRA 456",
     }
     puntos, _, tipo, conflicto = fs._puntuar_hermano(con_contexto, persona, persona["padre"], persona["madre"])
@@ -247,3 +247,10 @@ def test_umbrales_de_confianza_son_estrictos():
 
     assert config.FAMILIA_UMBRAL_ALTA >= 70
     assert config.FAMILIA_UMBRAL_MEDIA >= 50
+
+
+def test_relaciones_probables_ocultas_por_defecto():
+    """Solo se muestran indicios si el operador lo habilita explícitamente."""
+    from app import config
+
+    assert config.FAMILIA_INCLUIR_PROBABLES is False

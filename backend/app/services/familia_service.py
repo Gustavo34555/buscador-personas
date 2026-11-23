@@ -1156,10 +1156,10 @@ def _puntuar_hermano(
                 )
             )
     elif padre_ok:
-        confirmado = (padre_fuerte and apoyo_contexto >= 4) or apoyo_contexto >= 10
+        confirmado = (padre_fuerte and apoyo_contexto >= 8) or apoyo_contexto >= 12
         tipo = "medio_hermano_paterno" if confirmado else "hermano_probable"
     elif madre_ok:
-        confirmado = (madre_fuerte and apoyo_contexto >= 4) or apoyo_contexto >= 10
+        confirmado = (madre_fuerte and apoyo_contexto >= 8) or apoyo_contexto >= 12
         tipo = "medio_hermano_materno" if confirmado else "hermano_probable"
     else:
         tipo = "hermano_probable"
@@ -1197,7 +1197,9 @@ def _buscar_hermanos(conn, persona: dict, limite: int) -> tuple[list[dict], bool
             if tipo == "debil_sin_contexto":
                 omitidos_debiles += 1
             continue
-        umbral = 30 if tipo == "hermano_probable" else config.FAMILIA_UMBRAL_MEDIA
+        if tipo == "hermano_probable" and not config.FAMILIA_INCLUIR_PROBABLES:
+            continue
+        umbral = config.FAMILIA_UMBRAL_MEDIA
         if puntos < umbral:
             continue
         puntuados.append((puntos, fila, evidencias, tipo))
@@ -1394,7 +1396,9 @@ def _buscar_hijos(
         mejor: tuple[int, list[dict], str] | None = None
         for campo, columna in modos:
             puntos, evidencias, conflicto, probable = _puntuar_hijo(fila, persona, campo, columna)
-            umbral = 30 if probable else config.FAMILIA_UMBRAL_MEDIA
+            if probable and not config.FAMILIA_INCLUIR_PROBABLES:
+                continue
+            umbral = config.FAMILIA_UMBRAL_MEDIA
             if conflicto or puntos < umbral:
                 continue
             base = "hija" if normalizar(fila.get("sexo")) in {"2", "femenino", "f"} else "hijo"
