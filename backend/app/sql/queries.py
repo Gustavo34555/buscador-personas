@@ -78,8 +78,9 @@ RANK_PRECISO = f"""
     ),
     det AS (
         SELECT p.*,
-            p.nombre_completo AS nc,
-            p.nombre_busqueda AS nc_busq
+            {NC_EXPR} AS nc,
+            {NC_BUSQUEDA_EXPR} AS nc_busq,
+            {EDAD_COLS}
         FROM personas p
         WHERE p.dni IN :dni_list
     )

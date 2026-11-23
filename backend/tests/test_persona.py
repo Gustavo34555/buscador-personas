@@ -236,3 +236,14 @@ def test_arbol_no_usa_cache_negativa_de_persona(client, monkeypatch):
     monkeypatch.setattr(familia_service, "engine", FakeEngine([PERSONA_FILA]))
     res = client.get("/persona/99999999/arbol")
     assert res.status_code == 200
+
+
+def test_rank_preciso_no_depende_de_columnas_generadas():
+    """El SQL debe funcionar aunque la base no tenga columnas generadas nuevas."""
+    from app.sql.queries import RANK_PRECISO
+
+    assert "p.nombre_busqueda" not in RANK_PRECISO
+    assert "p.nombre_completo" not in RANK_PRECISO
+    assert "AS nc_busq" in RANK_PRECISO
+    assert "AS edad_anios" in RANK_PRECISO
+    assert "det.edad_anios" in RANK_PRECISO
