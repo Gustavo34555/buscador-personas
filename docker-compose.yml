@@ -1,3 +1,5 @@
+# Stack de producción. Copia .env.example a .env antes de levantar servicios.
+# PostgreSQL, Redis y el backend no publican puertos: solo entra Nginx.
 services:
   db:
     image: postgres:16-alpine
@@ -17,6 +19,27 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    networks:
+      - backend_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: buscador_redis
+    # Persistencia ligera: la caché puede reconstruirse, pero así sobrevive
+    # a reinicios del contenedor sin perder claves válidas.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend_net
 
   backend:
     build:
@@ -27,20 +50,40 @@ services:
       - ./.env
     environment:
       APP_ENV: ${APP_ENV:-production}
-      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL en el archivo .env}
+      # Una sola fuente de verdad: DATABASE_URL se reconstruye con las mismas
+      # variables que usa el servicio `db`, así la contraseña no puede
+      # divergir en silencio respecto a POSTGRES_PASSWORD. El DATABASE_URL
+      # del .env queda reservado para psql/migraciones en local.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-buscador}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en el archivo .env}@db:5432/${POSTGRES_DB:-buscador_personas}
+      # El valor por defecto se usa solo si la variable no existe; un
+      # REDIS_URL= explícito desactiva Redis y deja la caché en memoria.
+      REDIS_URL: ${REDIS_URL-redis://redis:6379/0}
       ALLOW_OPEN_ACCESS: "false"
-      # Nginx es el único punto de entrada; confía en sus cabeceras de proxy
-      # para que el rate limiting y la auditoría usen la IP real del cliente.
-      FORWARDED_ALLOW_IPS: "*"
+      # uvicorn --proxy-headers y la app solo confían en cabeceras
+      # X-Forwarded-* procedentes de la IP fija de Nginx. Nunca usar "*":
+      # permitiría a cualquier cliente falsificar su IP y evadir el rate limit.
+      FORWARDED_ALLOW_IPS: "172.28.0.10"
       TRUST_PROXY_HEADERS: "true"
+      TRUSTED_PROXIES: "172.28.0.10"
     expose:
       - "8000"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # La imagen python:3.12-slim no trae curl; usamos la stdlib.
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/api/status\", timeout=5)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    networks:
+      - backend_net
 
   frontend:
     image: nginx:alpine
@@ -51,10 +94,25 @@ services:
       - ./frontend:/usr/share/nginx/html:ro
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    networks:
+      backend_net:
+        ipv4_address: 172.28.0.10
 
 volumes:
   postgres_data:
+  redis_data:
+
+# Subred dedicada para poder fijar la IP de Nginx y restringir las
+# cabeceras de proxy confiables. Si cambias la subred, actualiza también
+# FORWARDED_ALLOW_IPS y TRUSTED_PROXIES (y .env.example).
+networks:
+  backend_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

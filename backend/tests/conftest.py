@@ -30,6 +30,7 @@ def limpiar_estado():
         persona.buscar_cache.clear()
         persona.arbol_cache.clear()
         persona.dni_negative_cache.clear()
+        persona.arbol_negative_cache.clear()
         search_rate_limiter.clear()
         ruc.ruc_cache.clear()
         ruc_rate_limiter.clear()

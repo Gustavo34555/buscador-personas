@@ -15,6 +15,7 @@ from app.config import (
     NEGATIVE_CACHE_TTL,
 )
 from app.dependencies import get_client_host, verify_search_rate_limit
+from app.errors import QueryExecutionError
 from app.schemas import ArbolResponse, PersonaBusquedaItem, PersonaResponse
 from app.security import require_jwt_auth
 from app.services import auditoria_service, auth_service, persona_service
@@ -29,6 +30,40 @@ arbol_cache = build_cache("arbol", maxsize=500, ttl=ARBOL_CACHE_TTL)
 # Evita repetir consultas a la base para DNIs inexistentes (también frena
 # intentos de enumeración). Es independiente de la cuota: un 404 se reembolsa.
 dni_negative_cache = build_cache("dni_negative", maxsize=2000, ttl=NEGATIVE_CACHE_TTL)
+arbol_negative_cache = build_cache("arbol_negative", maxsize=2000, ttl=NEGATIVE_CACHE_TTL)
+
+# Prefijo de versión: un deploy con otro scoring no debe servir respuestas viejas.
+CACHE_VERSION = "v3"
+
+
+def _escape_like(text: str) -> str:
+    """Escapa comodines SQL LIKE para no alterar el patrón ni el score."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _fila_dni(dni: str) -> dict | None:
+    fila = persona_service.obtener_por_dni(dni)
+    return dict(fila) if fila is not None else None
+
+
+def _dict_fila(fila) -> dict:
+    return dict(fila)
+
+
+def _upstream_timeout(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=504,
+        detail="La consulta tardó demasiado; intenta de nuevo",
+        headers={"Retry-After": "5"},
+    )
+
+
+def _query_unavailable(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail="Servicio de consulta no disponible; intenta de nuevo en unos segundos",
+        headers={"Retry-After": "5"},
+    )
 
 
 def _normalize_text(text: str) -> str:
@@ -98,10 +133,16 @@ async def obtener_persona(
         return cached
 
     try:
-        fila = await asyncio.to_thread(persona_service.obtener_por_dni, dni)
+        fila = await asyncio.to_thread(dni_cache.get_or_set, dni, lambda: _fila_dni(dni))
+    except asyncio.TimeoutError as e:
+        _reembolsar_consulta(user_payload, consumida)
+        raise _upstream_timeout(e) from e
+    except QueryExecutionError as e:
+        _reembolsar_consulta(user_payload, consumida)
+        raise _query_unavailable(e) from e
     except SQLAlchemyError as e:
         _reembolsar_consulta(user_payload, consumida)
-        logger.exception("Error al consultar la base de datos")
+        logger.error("Error de base de datos: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
 
     if not fila:
@@ -122,7 +163,7 @@ async def buscar_personas(
     request: Request,
     response: Response,
     background_tasks: BackgroundTasks,
-    q: str = Query(..., min_length=2, description="Nombre o apellido a buscar"),
+    q: str = Query(..., min_length=2, max_length=100, description="Nombre o apellido a buscar"),
     limit: int = Query(20, ge=1, le=200, description="Máximo de resultados"),
     _rate_limit: None = Depends(verify_search_rate_limit),
     user_payload: dict = Depends(require_jwt_auth),
@@ -140,7 +181,7 @@ async def buscar_personas(
     # La clave usa el texto normalizado: "García" y "Garcia" comparten caché.
     q_normalized = _normalize_text(q)
     q_lower = q_normalized.lower()
-    cache_key = f"{q_lower}:{limit}"
+    cache_key = f"{CACHE_VERSION}:{q_lower}:{limit}"
 
     consumida, restantes = _consumir_consulta(user_payload)
 
@@ -149,7 +190,7 @@ async def buscar_personas(
         _set_quota_header(response, restantes)
         return cached
 
-    q_prefix = q_lower + "%"
+    q_prefix = _escape_like(q_lower) + "%"
 
     words = q_lower.split()
     w1 = words[0] if len(words) >= 1 else ""
@@ -158,22 +199,37 @@ async def buscar_personas(
     w4 = words[3] if len(words) >= 4 else ""
 
     try:
-        filas = await asyncio.to_thread(
-            persona_service.buscar_personas,
-            q=q_normalized,
-            q_lower=q_lower,
-            q_prefix=q_prefix,
-            dni_prefix=f"{q_lower}%",
-            num_words=len(words),
-            limit=limit,
-            w1=w1,
-            w2=w2,
-            w3=w3,
-            w4=w4,
+        filas = await asyncio.wait_for(
+            asyncio.to_thread(
+                buscar_cache.get_or_set,
+                cache_key,
+                lambda: [
+                    _dict_fila(f)
+                    for f in persona_service.buscar_personas(
+                        q=q_normalized,
+                        q_lower=q_lower,
+                        q_prefix=q_prefix,
+                        dni_prefix=_escape_like(q_lower) + "%",
+                        num_words=len(words),
+                        limit=limit,
+                        w1=w1,
+                        w2=w2,
+                        w3=w3,
+                        w4=w4,
+                    )
+                ],
+            ),
+            timeout=25,
         )
+    except asyncio.TimeoutError as e:
+        _reembolsar_consulta(user_payload, consumida)
+        raise _upstream_timeout(e) from e
+    except QueryExecutionError as e:
+        _reembolsar_consulta(user_payload, consumida)
+        raise _query_unavailable(e) from e
     except SQLAlchemyError as e:
         _reembolsar_consulta(user_payload, consumida)
-        logger.exception("Error al consultar la base de datos")
+        logger.error("Error de base de datos: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
 
     result = [dict(fila) for fila in filas]
@@ -201,25 +257,34 @@ async def arbol_genealogico(
 
     consumida, restantes = _consumir_consulta(user_payload)
 
-    if dni_negative_cache.get(dni) is not None:
+    if arbol_negative_cache.get(dni) is not None:
         _reembolsar_consulta(user_payload, consumida)
         raise HTTPException(status_code=404, detail="Persona no encontrada")
 
-    cache_key = f"{dni}:{limite}"
+    cache_key = f"{CACHE_VERSION}:{dni}:{limite}"
     cached = arbol_cache.get(cache_key)
     if cached is not None:
         _set_quota_header(response, restantes)
         return cached
 
     try:
-        arbol = await asyncio.to_thread(persona_service.construir_arbol, dni, limite)
+        arbol = await asyncio.wait_for(
+            asyncio.to_thread(arbol_cache.get_or_set, cache_key, lambda: persona_service.construir_arbol(dni, limite)),
+            timeout=25,
+        )
+    except asyncio.TimeoutError as e:
+        _reembolsar_consulta(user_payload, consumida)
+        raise _upstream_timeout(e) from e
+    except QueryExecutionError as e:
+        _reembolsar_consulta(user_payload, consumida)
+        raise _query_unavailable(e) from e
     except SQLAlchemyError as e:
         _reembolsar_consulta(user_payload, consumida)
-        logger.exception("Error al construir árbol genealógico")
+        logger.error("Error de base de datos al construir el árbol: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Error interno al consultar la base de datos") from e
 
     if not arbol:
-        dni_negative_cache.set(dni, True)
+        arbol_negative_cache.set(dni, True)
         _reembolsar_consulta(user_payload, consumida)
         raise HTTPException(status_code=404, detail="Persona no encontrada")
 

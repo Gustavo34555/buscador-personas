@@ -1,21 +1,28 @@
 /* Service worker: stale-while-revalidate para estáticos y network-first para navegación.
    Nunca cachea API, datos personales ni respuestas autenticadas. */
-const CACHE_NAME = 'buscador-personas-v19';
+const VERSION = 'v21';
+const CACHE_NAME = `buscador-personas-${VERSION}`;
+const CACHE_PREFIX = 'buscador-personas-';
+const SHELL_URL = `/index.html?v=${VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/styles.css?v=3.0',
-  '/app.js?v=2.17',
+  SHELL_URL,
+  '/styles.css?v=3.2',
+  '/app.js?v=2.19',
   '/theme.js',
   '/manifest.json',
   '/icon.svg',
   '/fonts/inter-latin.woff2',
-  '/fonts/inter-latin-ext.woff2'
+  '/fonts/inter-latin-ext.woff2',
+  '/fonts/material-symbols-outlined.woff2'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(STATIC_ASSETS.map((url) => cache.add(url)))
+    )
   );
   // No skipWaiting automático: la página muestra "Nueva versión disponible".
 });
@@ -23,7 +30,11 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
+      Promise.all(
+        keys
+          .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+          .map((key) => caches.delete(key))
+      )
     ).then(() => self.clients.claim())
   );
 });
@@ -55,7 +66,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => response)
-        .catch(() => caches.match('/index.html').then((cached) => cached || caches.match('/')))
+        .catch(() =>
+          caches.match(SHELL_URL).then((cached) => cached || caches.match('/index.html') || caches.match('/'))
+        )
     );
     return;
   }

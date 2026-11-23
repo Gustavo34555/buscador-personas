@@ -27,6 +27,7 @@ from sqlalchemy import text
 
 from app import config
 from app.db import engine
+from app.errors import QueryExecutionError
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ _CAMPOS_CANDIDATO = """
 
 # ── Normalización ───────────────────────────────────────────────────────
 
+
 def normalizar(valor: Any) -> str:
     """Minúsculas, sin acentos, sin signos y con espacios colapsados."""
     if valor is None:
@@ -155,6 +157,7 @@ def _evidencia(codigo: str, descripcion: str, puntos: int) -> dict[str, Any]:
 
 
 # ── Ubigeo ──────────────────────────────────────────────────────────────
+
 
 def departamento_de_ubigeo_nac(codigo: Any) -> str:
     """Código de departamento a partir de un ubigeo de nacimiento."""
@@ -218,9 +221,7 @@ def _evidencia_geografica(candidato: dict, referencia: dict) -> tuple[int, list[
     elif _misma_provincia(nac_c, nac_r):
         puntos += 4
         evidencias.append(_evidencia("ubigeo_nac_provincia", "Misma provincia de nacimiento", 4))
-    elif departamento_de_ubigeo_nac(nac_c) and (
-        departamento_de_ubigeo_nac(nac_c) == departamento_de_ubigeo_nac(nac_r)
-    ):
+    elif departamento_de_ubigeo_nac(nac_c) and (departamento_de_ubigeo_nac(nac_c) == departamento_de_ubigeo_nac(nac_r)):
         puntos += 2
         evidencias.append(_evidencia("ubigeo_nac_departamento", "Mismo departamento de nacimiento", 2))
 
@@ -235,14 +236,10 @@ def _evidencia_geografica(candidato: dict, referencia: dict) -> tuple[int, list[
     dep_nac_r = departamento_de_ubigeo_nac(nac_r)
     if dep_dir_r and dep_nac_c and dep_dir_r == dep_nac_c:
         puntos += 2
-        evidencias.append(
-            _evidencia("nac_candidato_dir_referencia", "Nació donde reside la referencia", 2)
-        )
+        evidencias.append(_evidencia("nac_candidato_dir_referencia", "Nació donde reside la referencia", 2))
     if dep_dir_c and dep_nac_r and dep_dir_c == dep_nac_r:
         puntos += 2
-        evidencias.append(
-            _evidencia("dir_candidato_nac_referencia", "Reside donde nació la referencia", 2)
-        )
+        evidencias.append(_evidencia("dir_candidato_nac_referencia", "Reside donde nació la referencia", 2))
 
     return min(puntos, 12), evidencias
 
@@ -287,6 +284,7 @@ def _evidencia_direccion(candidato: dict, referencia: dict) -> tuple[int, list[d
 
 
 # ── Separación de nombres y apellidos ───────────────────────────────────
+
 
 def separar_nombres_apellidos(texto: Any, apellido_ancla: Any) -> tuple[list[str], list[str]]:
     """Separa un campo ``padre``/``madre`` usando el apellido heredado.
@@ -337,44 +335,40 @@ def _compatibilidad_campos_progenitor(a: Any, b: Any) -> tuple[int, bool, list[d
         # ("MANUEL JESUS") es evidencia débil: muchas personas comparten el
         # primer nombre. No basta por sí solo para afirmar una relación.
         if len(corto) == 1 and len(largo) >= 2:
-            return 10, False, [
-                _evidencia(
-                    "progenitor_primer_nombre",
-                    "Solo coincide el primer nombre del progenitor",
-                    10,
-                )
-            ]
-        return 20, False, [
-            _evidencia("progenitor_prefijo", "Nombre del progenitor coincide parcialmente", 20)
-        ]
+            return (
+                10,
+                False,
+                [
+                    _evidencia(
+                        "progenitor_primer_nombre",
+                        "Solo coincide el primer nombre del progenitor",
+                        10,
+                    )
+                ],
+            )
+        return 20, False, [_evidencia("progenitor_prefijo", "Nombre del progenitor coincide parcialmente", 20)]
     if set(corto).issubset(set(largo)):
         if len(corto) == 1:
-            return 8, False, [
-                _evidencia(
-                    "progenitor_token_unico",
-                    "Coincide un único token del nombre del progenitor",
-                    8,
-                )
-            ]
-        return 15, False, [
-            _evidencia("progenitor_tokens", "Tokens del progenitor contenidos", 15)
-        ]
+            return (
+                8,
+                False,
+                [
+                    _evidencia(
+                        "progenitor_token_unico",
+                        "Coincide un único token del nombre del progenitor",
+                        8,
+                    )
+                ],
+            )
+        return 15, False, [_evidencia("progenitor_tokens", "Tokens del progenitor contenidos", 15)]
     if ta[0] == tb[0] and len(ta) >= 2 and len(tb) >= 2 and ta[1] != tb[1]:
-        return 0, True, [
-            _evidencia("progenitor_conflicto", "Segundo nombre del progenitor no coincide", -25)
-        ]
+        return 0, True, [_evidencia("progenitor_conflicto", "Segundo nombre del progenitor no coincide", -25)]
     if not (set(ta) & set(tb)):
-        return 0, True, [
-            _evidencia("progenitor_distinto", "Nombre del progenitor incompatible", -25)
-        ]
+        return 0, True, [_evidencia("progenitor_distinto", "Nombre del progenitor incompatible", -25)]
     coincidencias = len(set(ta) & set(tb)) / max(len(set(ta)), len(set(tb)))
     if coincidencias >= 0.5:
-        return 8, False, [
-            _evidencia("progenitor_parcial", "Coincidencia parcial del progenitor", 8)
-        ]
-    return 0, True, [
-        _evidencia("progenitor_conflicto", "Nombre del progenitor incompatible", -25)
-    ]
+        return 8, False, [_evidencia("progenitor_parcial", "Coincidencia parcial del progenitor", 8)]
+    return 0, True, [_evidencia("progenitor_conflicto", "Nombre del progenitor incompatible", -25)]
 
 
 def _puntuar_nombre_registrado(
@@ -435,9 +429,7 @@ def _puntuar_nombre_registrado(
             )
     elif cobertura >= 0.5:
         puntos = 12 if not estricto else 8
-        evidencias.append(
-            _evidencia("nombre_parcial", "Coincidencia parcial de nombres", puntos)
-        )
+        evidencias.append(_evidencia("nombre_parcial", "Coincidencia parcial de nombres", puntos))
     else:
         puntos = -20 if not estricto else -25
         evidencias.append(_evidencia("nombre_distinto", "Nombres no coinciden", puntos))
@@ -448,9 +440,7 @@ def _puntuar_nombre_registrado(
         if segundo not in {ap_pat_cand, ap_mat_cand} and segundo not in apellidos_reg:
             puntos -= 25
             conflicto = True
-            evidencias.append(
-                _evidencia("segundo_nombre_conflicto", "Segundo nombre no coincide", -25)
-            )
+            evidencias.append(_evidencia("segundo_nombre_conflicto", "Segundo nombre no coincide", -25))
 
     faltantes = [t for t in nombres_reg if t not in universo_cand]
     if faltantes:
@@ -469,6 +459,7 @@ def _puntuar_nombre_registrado(
 
 # ── Acceso a datos ──────────────────────────────────────────────────────
 
+
 def _query(
     conn,
     sql: str,
@@ -484,13 +475,13 @@ def _query(
         conn.execute(text("RELEASE SAVEPOINT familia_query"))
         return [dict(f) for f in filas]
     except Exception as exc:
-        logger.warning("Consulta familiar cancelada o fallida: %s", exc)
+        logger.warning("Consulta familiar cancelada o fallida: %s", type(exc).__name__)
         try:
             conn.execute(text("ROLLBACK TO SAVEPOINT familia_query"))
             conn.execute(text("RELEASE SAVEPOINT familia_query"))
         except Exception:
             logger.debug("No se pudo liberar el savepoint familiar", exc_info=True)
-        return []
+        raise QueryExecutionError("No se pudo ejecutar la consulta familiar") from exc
 
 
 def _rango_fechas_progenitor(hijo: dict, tipo: str) -> tuple[str, str]:
@@ -549,7 +540,7 @@ def _buscar_candidatos_progenitor(conn, hijo: dict, tipo: str) -> list[dict]:
         sql = f"""
             SELECT {_CAMPOS_CANDIDATO}
             FROM personas p
-            WHERE {' AND '.join(condiciones)}
+            WHERE {" AND ".join(condiciones)}
             ORDER BY ts_rank_cd(p.search_vector, to_tsquery('simple', :tsq)) DESC,
                      p.fecha_nac DESC NULLS LAST
             LIMIT :limite
@@ -580,9 +571,7 @@ def _buscar_candidatos_progenitor(conn, hijo: dict, tipo: str) -> list[dict]:
         if candidatos and indice == 0:
             mejor = 0
             for fila in candidatos.values():
-                puntos, _, conflicto = _puntuar_progenitor(
-                    fila, hijo, tipo, nombres, apellidos, ancla, ap_mat_extra
-                )
+                puntos, _, conflicto = _puntuar_progenitor(fila, hijo, tipo, nombres, apellidos, ancla, ap_mat_extra)
                 if not conflicto:
                     mejor = max(mejor, puntos)
             if mejor >= config.FAMILIA_UMBRAL_ALTA:
@@ -613,21 +602,15 @@ def _puntuar_progenitor(
         if ap_pat_cand != ancla:
             return -999, [], True
         puntos += 30
-        evidencias.append(
-            _evidencia("apellido_heredado", "Apellido paterno heredado coincide", 30)
-        )
+        evidencias.append(_evidencia("apellido_heredado", "Apellido paterno heredado coincide", 30))
 
     if ap_mat_extra:
         if ap_mat_cand == ap_mat_extra:
             puntos += 10
-            evidencias.append(
-                _evidencia("apellido_materno_extra", "Segundo apellido del campo coincide", 10)
-            )
+            evidencias.append(_evidencia("apellido_materno_extra", "Segundo apellido del campo coincide", 10))
         elif ap_mat_cand:
             puntos -= 10
-            evidencias.append(
-                _evidencia("apellido_materno_distinto", "Segundo apellido no coincide", -10)
-            )
+            evidencias.append(_evidencia("apellido_materno_distinto", "Segundo apellido no coincide", -10))
 
     puntos_nombre, conflicto, ev_nombre = _puntuar_nombre_registrado(
         " ".join(nombres_reg),
@@ -766,9 +749,7 @@ def _resolver_progenitor(conn, hijo: dict, tipo: str) -> dict:
 
     puntuados: list[tuple[int, dict, list[dict]]] = []
     for fila in filas:
-        puntos, evidencias, conflicto = _puntuar_progenitor(
-            fila, hijo, tipo, nombres, apellidos, ancla, ap_mat_extra
-        )
+        puntos, evidencias, conflicto = _puntuar_progenitor(fila, hijo, tipo, nombres, apellidos, ancla, ap_mat_extra)
         if conflicto or puntos < 0:
             continue
         puntuados.append((puntos, fila, evidencias))
@@ -783,9 +764,7 @@ def _resolver_progenitor(conn, hijo: dict, tipo: str) -> dict:
         return {"nodo": None, "candidatos": [], "confianza": 0, "evidencia": []}
 
     mejores = puntuados[:10]
-    candidatos = [
-        _resumen_candidato(fila, puntos, evidencias) for puntos, fila, evidencias in mejores
-    ]
+    candidatos = [_resumen_candidato(fila, puntos, evidencias) for puntos, fila, evidencias in mejores]
     mejor_puntos, mejor_fila, mejor_evidencia = mejores[0]
 
     nodo = None
@@ -806,6 +785,7 @@ def _resolver_progenitor(conn, hijo: dict, tipo: str) -> dict:
 
 
 # ── Hermanos ────────────────────────────────────────────────────────────
+
 
 def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
     ap_pat = normalizar(persona.get("ap_pat"))
@@ -979,12 +959,8 @@ def _puntuar_hermano(
         puntos += 15
         evidencias.append(_evidencia("apellido_materno", "Comparte apellido materno", 15))
 
-    padre_puntos, padre_conflicto, padre_ev = _compatibilidad_campos_progenitor(
-        padre_txt, candidato.get("padre")
-    )
-    madre_puntos, madre_conflicto, madre_ev = _compatibilidad_campos_progenitor(
-        madre_txt, candidato.get("madre")
-    )
+    padre_puntos, padre_conflicto, padre_ev = _compatibilidad_campos_progenitor(padre_txt, candidato.get("padre"))
+    madre_puntos, madre_conflicto, madre_ev = _compatibilidad_campos_progenitor(madre_txt, candidato.get("madre"))
 
     # Un progenitor puede faltar o ser distinto (medio hermano). Solo se
     # descarta cuando ambos campos existen y ambos son incompatibles.
@@ -1045,17 +1021,9 @@ def _puntuar_hermano(
     if padre_ok and madre_ok:
         tipo = "hermano_completo"
     elif padre_ok:
-        tipo = (
-            "medio_hermano_paterno"
-            if (padre_fuerte or apoyo_contexto >= 6)
-            else "hermano_probable"
-        )
+        tipo = "medio_hermano_paterno" if (padre_fuerte or apoyo_contexto >= 6) else "hermano_probable"
     elif madre_ok:
-        tipo = (
-            "medio_hermano_materno"
-            if (madre_fuerte or apoyo_contexto >= 6)
-            else "hermano_probable"
-        )
+        tipo = "medio_hermano_materno" if (madre_fuerte or apoyo_contexto >= 6) else "hermano_probable"
     else:
         tipo = "hermano_probable"
 
@@ -1108,13 +1076,13 @@ def _buscar_hermanos(conn, persona: dict, limite: int) -> tuple[list[dict], bool
     )
     truncado = len(puntuados) > limite
     nodos = [
-        _nodo(fila, puntos, evidencias, tipo_relacion=tipo)
-        for puntos, fila, evidencias, tipo in puntuados[:limite]
+        _nodo(fila, puntos, evidencias, tipo_relacion=tipo) for puntos, fila, evidencias, tipo in puntuados[:limite]
     ]
     return nodos, truncado, omitidos_debiles
 
 
 # ── Hijos ───────────────────────────────────────────────────────────────
+
 
 def _modos_hijos(persona: dict) -> list[tuple[str, str]]:
     """Devuelve (campo_progenitor, columna_apellido) según el sexo."""
@@ -1141,9 +1109,7 @@ def _buscar_candidatos_hijos(conn, persona: dict, limite: int) -> list[dict]:
     rango = ""
     params_rango: dict[str, Any] = {}
     if fecha_persona:
-        rango = (
-            "AND (p.fecha_nac IS NULL OR p.fecha_nac BETWEEN :fecha_min AND :fecha_max)"
-        )
+        rango = "AND (p.fecha_nac IS NULL OR p.fecha_nac BETWEEN :fecha_min AND :fecha_max)"
         params_rango = {
             "fecha_min": (fecha_persona + timedelta(days=int(13 * 365.25))).isoformat(),
             "fecha_max": (fecha_persona + timedelta(days=int(70 * 365.25))).isoformat(),
@@ -1211,9 +1177,7 @@ def _puntuar_hijo(
         return -999, [], True, False
 
     puntos = 25
-    evidencias = [
-        _evidencia("apellido_heredado_hijo", "Apellido heredado del progenitor", 25)
-    ]
+    evidencias = [_evidencia("apellido_heredado_hijo", "Apellido heredado del progenitor", 25)]
 
     # El campo de filiación del hijo suele traer solo nombres de pila. En
     # modo estricto, un nombre incompleto no confirma por sí solo la
@@ -1288,9 +1252,7 @@ def _buscar_hijos(
             continue
         mejor: tuple[int, list[dict], str] | None = None
         for campo, columna in modos:
-            puntos, evidencias, conflicto, probable = _puntuar_hijo(
-                fila, persona, campo, columna
-            )
+            puntos, evidencias, conflicto, probable = _puntuar_hijo(fila, persona, campo, columna)
             umbral = 30 if probable else config.FAMILIA_UMBRAL_MEDIA
             if conflicto or puntos < umbral:
                 continue
@@ -1312,13 +1274,13 @@ def _buscar_hijos(
     )
     truncado = len(puntuados) > limite
     nodos = [
-        _nodo(fila, puntos, evidencias, tipo_relacion=tipo)
-        for puntos, fila, evidencias, tipo in puntuados[:limite]
+        _nodo(fila, puntos, evidencias, tipo_relacion=tipo) for puntos, fila, evidencias, tipo in puntuados[:limite]
     ]
     return nodos, truncado
 
 
 # ── Árbol ───────────────────────────────────────────────────────────────
+
 
 def _resolver_y_colocar(
     resultado: dict,
@@ -1343,166 +1305,134 @@ def _resolver_y_colocar(
 
 
 def construir_arbol(dni: str, limite: int | None = None) -> dict | None:
-    """Construye el árbol genealógico con confianza, evidencia y alternativas."""
+    """Construye el árbol genealógico con confianza, evidencia y alternativas.
+
+    Las ramas independientes (progenitores, hermanos, hijos) se ejecutan en
+    paralelo con conexiones propias y un pool acotado; antes eran ~19 consultas
+    secuenciales que podían agotar el pool de SQLAlchemy con pocas peticiones.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     from app.sql.queries import PERSONA_POR_DNI
 
     limite = max(1, min(int(limite or config.FAMILIA_LIMITE_DEFAULT), config.FAMILIA_LIMITE_MAX))
 
     with engine.connect() as conn:
         filas = _query(conn, PERSONA_POR_DNI, {"dni": dni}, timeout_ms=7000)
-        if not filas:
-            return None
-        persona = filas[0]
+    if not filas:
+        return None
+    persona = filas[0]
 
-        resultado: dict[str, Any] = {
-            "persona": _nodo(
-                persona,
-                100,
-                [_evidencia("titular", "Persona titular del árbol", 100)],
-                tipo_relacion="titular",
-            ),
-            "padre": None,
-            "madre": None,
-            "abuelo_paterno": None,
-            "abuela_paterna": None,
-            "abuelo_materno": None,
-            "abuela_materna": None,
-            "hermanos": [],
-            "hijos": [],
-        }
+    def _with_conn(fn, *args):
+        with engine.connect() as conn:
+            return fn(conn, *args)
 
-        padre_res = _resolver_progenitor(conn, persona, "padre")
-        madre_res = _resolver_progenitor(conn, persona, "madre")
+    resultado: dict[str, Any] = {
+        "persona": _nodo(
+            persona,
+            100,
+            [_evidencia("titular", "Persona titular del árbol", 100)],
+            tipo_relacion="titular",
+        ),
+        "padre": None,
+        "madre": None,
+        "abuelo_paterno": None,
+        "abuela_paterna": None,
+        "abuelo_materno": None,
+        "abuela_materna": None,
+        "hermanos": [],
+        "hijos": [],
+    }
 
-        _resolver_y_colocar(
-            resultado,
-            "padre",
-            padre_res,
-            persona.get("padre"),
-            "Masculino",
-            persona.get("ap_pat"),
-            "padre",
+    # Etapa 1: todo lo que depende solo del titular.
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="familia") as pool:
+        f_padre = pool.submit(_with_conn, _resolver_progenitor, persona, "padre")
+        f_madre = pool.submit(_with_conn, _resolver_progenitor, persona, "madre")
+        f_hermanos = pool.submit(_with_conn, _buscar_hermanos, persona, limite)
+        f_hijos = pool.submit(_with_conn, _buscar_hijos, persona, limite)
+        padre_res = f_padre.result()
+        madre_res = f_madre.result()
+        hermanos, hermanos_truncados, hermanos_debiles = f_hermanos.result()
+        hijos, hijos_truncados = f_hijos.result()
+
+    _resolver_y_colocar(
+        resultado, "padre", padre_res, persona.get("padre"), "Masculino",
+        persona.get("ap_pat"), "padre",
+    )
+    _resolver_y_colocar(
+        resultado, "madre", madre_res, persona.get("madre"), "Femenino",
+        persona.get("ap_mat"), "madre",
+    )
+
+    padre_nodo = resultado.get("padre")
+    madre_nodo = resultado.get("madre")
+
+    # Etapa 2: abuelos, que dependen de los progenitores ya resueltos.
+    tareas_abuelos = []
+    if padre_nodo and padre_nodo.get("encontrado"):
+        tareas_abuelos.append(("abuelo_paterno", padre_nodo, "padre", "Masculino"))
+        tareas_abuelos.append(("abuela_paterna", padre_nodo, "madre", "Femenino"))
+    if madre_nodo and madre_nodo.get("encontrado"):
+        tareas_abuelos.append(("abuelo_materno", madre_nodo, "padre", "Masculino"))
+        tareas_abuelos.append(("abuela_materna", madre_nodo, "madre", "Femenino"))
+
+    if tareas_abuelos:
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="abuelos") as pool:
+            futuros = {
+                clave: pool.submit(_with_conn, _resolver_progenitor, nodo, tipo)
+                for clave, nodo, tipo, _sexo in tareas_abuelos
+            }
+            for clave, nodo, _tipo, sexo in tareas_abuelos:
+                resolucion = futuros[clave].result()
+                ancla = nodo.get("ap_pat") if sexo == "Masculino" else nodo.get("ap_mat")
+                _resolver_y_colocar(
+                    resultado, clave, resolucion, nodo.get("padre" if sexo == "Masculino" else "madre"),
+                    sexo, ancla, clave,
+                )
+
+    resultado["hermanos"] = hermanos
+    resultado["hijos"] = hijos
+
+    advertencias: list[str] = []
+    if not (persona.get("padre") or persona.get("madre")):
+        advertencias.append(
+            "No hay nombres de progenitores registrados: la búsqueda de "
+            "hermanos se basa solo en apellidos y es menos precisa."
         )
-        _resolver_y_colocar(
-            resultado,
-            "madre",
-            madre_res,
-            persona.get("madre"),
-            "Femenino",
-            persona.get("ap_mat"),
-            "madre",
+    if persona.get("padre") and not (padre_nodo and padre_nodo.get("encontrado")):
+        advertencias.append("Padre no confirmado con evidencia suficiente; revisa los candidatos.")
+    if persona.get("madre") and not (madre_nodo and madre_nodo.get("encontrado")):
+        advertencias.append("Madre no confirmada con evidencia suficiente; revisa los candidatos.")
+    probables = sum(1 for h in hermanos if h.get("tipo_relacion") == "hermano_probable")
+    if probables:
+        advertencias.append(
+            f"{probables} hermano(s) son probables (baja confianza): "
+            "solo se comparten apellidos o parte del nombre de un progenitor."
         )
-
-        padre_nodo = resultado.get("padre")
-        madre_nodo = resultado.get("madre")
-
-        # Abuelos paternos.
-        if padre_nodo and padre_nodo.get("encontrado"):
-            abuelo_p = _resolver_progenitor(conn, padre_nodo, "padre")
-            abuela_p = _resolver_progenitor(conn, padre_nodo, "madre")
-            _resolver_y_colocar(
-                resultado,
-                "abuelo_paterno",
-                abuelo_p,
-                padre_nodo.get("padre"),
-                "Masculino",
-                padre_nodo.get("ap_pat"),
-                "abuelo_paterno",
-            )
-            _resolver_y_colocar(
-                resultado,
-                "abuela_paterna",
-                abuela_p,
-                padre_nodo.get("madre"),
-                "Femenino",
-                padre_nodo.get("ap_mat"),
-                "abuela_paterna",
-            )
-
-        # Abuelos maternos.
-        if madre_nodo and madre_nodo.get("encontrado"):
-            abuelo_m = _resolver_progenitor(conn, madre_nodo, "padre")
-            abuela_m = _resolver_progenitor(conn, madre_nodo, "madre")
-            _resolver_y_colocar(
-                resultado,
-                "abuelo_materno",
-                abuelo_m,
-                madre_nodo.get("padre"),
-                "Masculino",
-                madre_nodo.get("ap_pat"),
-                "abuelo_materno",
-            )
-            _resolver_y_colocar(
-                resultado,
-                "abuela_materna",
-                abuela_m,
-                madre_nodo.get("madre"),
-                "Femenino",
-                madre_nodo.get("ap_mat"),
-                "abuela_materna",
-            )
-
-        hermanos, hermanos_truncados, hermanos_debiles = _buscar_hermanos(
-            conn, persona, limite
+    if hermanos_debiles:
+        advertencias.append(
+            f"Se omitieron {hermanos_debiles} posibles medios hermanos sin "
+            "respaldo geográfico suficiente para evitar homónimos."
         )
-        hijos, hijos_truncados = _buscar_hijos(conn, persona, limite)
-        resultado["hermanos"] = hermanos
-        resultado["hijos"] = hijos
-
-        advertencias: list[str] = []
-        if not (persona.get("padre") or persona.get("madre")):
-            advertencias.append(
-                "No hay nombres de progenitores registrados: la búsqueda de "
-                "hermanos se basa solo en apellidos y es menos precisa."
-            )
-        if persona.get("padre") and not (padre_nodo and padre_nodo.get("encontrado")):
-            advertencias.append(
-                "Padre no confirmado con evidencia suficiente; revisa los candidatos."
-            )
-        if persona.get("madre") and not (madre_nodo and madre_nodo.get("encontrado")):
-            advertencias.append(
-                "Madre no confirmada con evidencia suficiente; revisa los candidatos."
-            )
-        probables = sum(
-            1 for h in hermanos if h.get("tipo_relacion") == "hermano_probable"
+    hijos_probables = sum(1 for h in hijos if str(h.get("tipo_relacion") or "").endswith("_probable"))
+    if hijos_probables:
+        advertencias.append(
+            f"{hijos_probables} hijo(s) son probables (baja confianza): "
+            "el nombre registrado del progenitor está incompleto o en otro orden."
         )
-        if probables:
-            advertencias.append(
-                f"{probables} hermano(s) son probables (baja confianza): "
-                "solo se comparten apellidos o parte del nombre de un progenitor."
-            )
-        if hermanos_debiles:
-            advertencias.append(
-                f"Se omitieron {hermanos_debiles} posibles medios hermanos sin "
-                "respaldo geográfico suficiente para evitar homónimos."
-            )
-        hijos_probables = sum(
-            1 for h in hijos if str(h.get("tipo_relacion") or "").endswith("_probable")
-        )
-        if hijos_probables:
-            advertencias.append(
-                f"{hijos_probables} hijo(s) son probables (baja confianza): "
-                "el nombre registrado del progenitor está incompleto o en otro orden."
-            )
-        if hermanos_truncados:
-            advertencias.append(
-                f"Se muestran los {limite} hermanos con mayor confianza; hay más candidatos."
-            )
-        if hijos_truncados:
-            advertencias.append(
-                f"Se muestran los {limite} hijos con mayor confianza; hay más candidatos."
-            )
-        if not _fecha(persona.get("fecha_nac")):
-            advertencias.append(
-                "La persona no tiene fecha de nacimiento: la validación de edad es limitada."
-            )
+    if hermanos_truncados:
+        advertencias.append(f"Se muestran los {limite} hermanos con mayor confianza; hay más candidatos.")
+    if hijos_truncados:
+        advertencias.append(f"Se muestran los {limite} hijos con mayor confianza; hay más candidatos.")
+    if not _fecha(persona.get("fecha_nac")):
+        advertencias.append("La persona no tiene fecha de nacimiento: la validación de edad es limitada.")
 
-        resultado["meta"] = {
-            "version": "2.0",
-            "limite_por_relacion": limite,
-            "umbral_alta": config.FAMILIA_UMBRAL_ALTA,
-            "umbral_media": config.FAMILIA_UMBRAL_MEDIA,
-            "candidatos_analizados_por_relacion": config.FAMILIA_CANDIDATOS,
-            "advertencias": advertencias,
-        }
-        return resultado
+    resultado["meta"] = {
+        "version": "2.0",
+        "limite_por_relacion": limite,
+        "umbral_alta": config.FAMILIA_UMBRAL_ALTA,
+        "umbral_media": config.FAMILIA_UMBRAL_MEDIA,
+        "candidatos_analizados_por_relacion": config.FAMILIA_CANDIDATOS,
+        "advertencias": advertencias,
+    }
+    return resultado

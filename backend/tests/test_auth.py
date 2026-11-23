@@ -275,9 +275,7 @@ def test_ruc_descuenta_cuota_y_expone_saldo(client, monkeypatch):
     from app.routers.ruc import get_ruc_service
     from app.services import persona_service
 
-    monkeypatch.setattr(
-        persona_service, "engine", FakeEngine([{"dni": "12345678", "dig_ruc": "5"}])
-    )
+    monkeypatch.setattr(persona_service, "engine", FakeEngine([{"dni": "12345678", "dig_ruc": "5"}]))
     client.app.dependency_overrides[get_ruc_service] = lambda: FakeRucService()
     MOCK_USERS[2]["consultas_usadas"] = 0
     try:
@@ -299,9 +297,7 @@ def test_ruc_error_reembolsa_cuota(client, monkeypatch):
     from app.routers.ruc import get_ruc_service
     from app.services import persona_service
 
-    monkeypatch.setattr(
-        persona_service, "engine", FakeEngine([{"dni": "12345678", "dig_ruc": "5"}])
-    )
+    monkeypatch.setattr(persona_service, "engine", FakeEngine([{"dni": "12345678", "dig_ruc": "5"}]))
     service = FakeRucService(error=HTTPException(500, "SUNAT no disponible"))
     client.app.dependency_overrides[get_ruc_service] = lambda: service
     MOCK_USERS[2]["consultas_usadas"] = 0

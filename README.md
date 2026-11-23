@@ -19,7 +19,7 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 - **Árbol familiar eficiente**: render progresivo por lotes, caché de cinco minutos, vista de grafo o lista por pestañas y controles táctiles de 44 px.
 - **Rendimiento móvil**: tipografía Inter local, `content-visibility`, `100dvh`, áreas seguras, acciones de 44 px y ampliación del área táctil de los iconos pequeños sin cambiar su tamaño visual, con animaciones desactivadas si el usuario prefiere menos movimiento.
 - **PWA** con Service Worker stale-while-revalidate, aviso de actualización y sin caché de respuestas personales o autenticadas.
-- **Caché de estáticos**: assets versionados con `immutable`, fuentes y SVG con caché semanal, y shell HTML/service worker siempre revalidables, también cuando FastAPI sirve el frontend sin Nginx.
+- **Caché de estáticos**: con Nginx, CSS/JS/fuentes/imágenes se sirven con `max-age` de un año y `index.html`/`sw.js` se revalidan siempre; sin Nginx, FastAPI marca los assets con `?v=` como `immutable` (un año), fuentes/SVG con caché semanal y el resto con `no-cache`. Las respuestas de datos personales y autenticación nunca son cacheables (`no-store`).
 - **Caché de búsquedas**: resultados principales y de búsqueda rápida en memoria durante 3-5 minutos, acotados por número de entradas y limpiados al cerrar sesión o expirar la cookie.
 - **Resiliencia de red**: timeout de 25 s en las llamadas API, aborto de búsquedas obsoletas y al cerrar sesión, mensajes claros de espera agotada y compresión gzip para respuestas JSON grandes.
 
@@ -38,7 +38,7 @@ Plataforma de consulta y búsqueda de personas sobre un padrón PostgreSQL, con 
 
 ## Despliegue con Docker
 
-El compose de producción **no publica** los puertos de PostgreSQL ni del backend. Solo Nginx queda expuesto.
+El compose de producción **no publica** los puertos de PostgreSQL, Redis ni del backend. Solo Nginx queda expuesto. Trae un servicio Redis 7 con volumen `redis_data` y healthcheck; el backend usa `REDIS_URL` para compartir caché y contadores de rate limit entre workers y, si se deja vacío, cae a memoria.
 
 ```bash
 # 1. Clonar el repositorio
@@ -60,9 +60,13 @@ DATABASE_URL=postgresql+psycopg2://buscador:una_password_larga_y_unica@db:5432/b
 JWT_SECRET=un_secreto_de_al_menos_32_caracteres
 ADMIN_PASSWORD=una_password_de_administrador_distinta
 ALLOW_OPEN_ACCESS=false
-COOKIE_SECURE=false   # cámbialo a true cuando sirvas por HTTPS
+COOKIE_SECURE=true    # HTTPS obligatorio en producción; false solo para prueba local por HTTP
+REDIS_URL=redis://redis:6379/0
+TRUSTED_PROXIES=172.28.0.10
 FRONTEND_PORT=8080
 ```
+
+`DATABASE_URL` debe repetir exactamente la misma contraseña que `POSTGRES_PASSWORD` (compruébalo con `make check-env`). En Docker Compose el backend ignora ese valor y reconstruye la URL desde `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`, de modo que no puedan divergir en silencio; el `DATABASE_URL` del `.env` se usa para `psql` y las migraciones en local.
 
 Genera el secreto JWT con:
 
@@ -78,24 +82,28 @@ docker compose up -d --build
 
 - **Frontend**: http://localhost:8080
 - **API**: solo accesible a través de Nginx en `/persona`, `/buscar`, `/scraping`, `/api`, `/docs`.
-- **PostgreSQL**: sin puerto publicado.
+- **PostgreSQL y Redis**: sin puertos publicados; el healthcheck del backend consulta `/api/status` y espera a que ambos estén sanos antes de arrancar Nginx.
 
-Para producción real, coloca Nginx detrás de HTTPS (por ejemplo con Caddy, Traefik o un certificado gestionado) y activa `COOKIE_SECURE=true`.
+Para producción real termina TLS en un proxy externo (Caddy, Traefik o un certificado gestionado) y mantén `COOKIE_SECURE=true`, tal como viene en `.env.example`. Nginx envía HSTS en todas las respuestas, pero el navegador solo la aplica cuando la petición llega por HTTPS. Si cambias la subred `172.28.0.0/16` del compose, actualiza también `FORWARDED_ALLOW_IPS` y `TRUSTED_PROXIES`.
 
 ### Volumen de base de datos existente
 
 `docker/initdb.sql` solo se ejecuta al crear un volumen nuevo. Para una base existente aplica las migraciones:
 
 ```bash
-# 001 crea usuarios, token_version y la función de búsqueda.
 # psql no entiende el prefijo "+psycopg2" del DATABASE_URL de SQLAlchemy.
-psql "${DATABASE_URL/postgresql+psycopg2/postgresql}" \
-  -f backend/migrations/001_auth_y_esquema.sql
+DATABASE_URL_PSQL="${DATABASE_URL/postgresql+psycopg2/postgresql}"
 
-# 002 crea índices normalizados de forma concurrente.
+# 001 crea usuarios, token_version y la auditoría.
+psql "$DATABASE_URL_PSQL" -f backend/migrations/001_auth_y_esquema.sql
+
+# 002 crea índices normalizados de forma concurrente (fuera de transacción).
 # Debe ejecutarlo el propietario de la tabla o un superusuario.
-psql -U postgres -d buscador_personas \
-  -f backend/migrations/002_indices_concurrentes.sql
+psql "$DATABASE_URL_PSQL" -f backend/migrations/002_indices_concurrentes.sql
+
+# 003 añade search_vector, columnas generadas y sus índices GIN.
+# Es imprescindible: sin search_vector la búsqueda FTS devuelve vacío.
+psql "$DATABASE_URL_PSQL" -v ON_ERROR_STOP=1 -f backend/migrations/003_search_schema.sql
 ```
 
 > **Importante:** si la tabla `personas` pertenece a `postgres`, el usuario de la aplicación (por ejemplo `buscador` en Docker) no puede crear índices sobre ella. Ejecuta la migración 002 como `postgres` o pide al propietario que la aplique. La aplicación funciona sin esos índices, pero la búsqueda familiar y por apellidos será más lenta.
@@ -107,7 +115,7 @@ psql -U postgres -d buscador_personas \
 ### Requisitos
 
 - Python 3.12+
-- PostgreSQL 15+ con `pg_trgm`, `unaccent` y `fuzzystrmatch`
+- PostgreSQL 16 con `pg_trgm`, `unaccent` y `fuzzystrmatch`; Redis 7 opcional para caché compartida
 
 ```bash
 cd backend
@@ -127,14 +135,24 @@ El frontend puede servirse con Nginx o con cualquier servidor estático apuntand
 
 ```bash
 cd backend
-pytest -q          # 65 pruebas
+pytest -q          # 68 pruebas
 ruff check .
 
 # Smoke tests de interfaz (escritorio y móvil) con jsdom
 cd ../frontend/tests
-npm install
+npm ci
 npm test
 ```
+
+---
+
+## Integración continua
+
+`.github/workflows/ci.yml` ejecuta tres jobs en cada push y pull request:
+
+- **backend**: Ruff y pytest (68 pruebas).
+- **frontend**: `node --check` de `app.js`, `sw.js` y `theme.js`, `npm ci` y `npm test` en `frontend/tests` (smoke tests de escritorio y móvil con jsdom).
+- **integration**: levanta PostgreSQL 16, aplica `docker/initdb.sql` y las migraciones 001, 002 y 003, y verifica columnas e índices con `psql`.
 
 ---
 
@@ -167,7 +185,7 @@ La API acepta autenticación por cookie (`bp_access`), por `Authorization: Beare
 - Cookies `HttpOnly`, `SameSite=Strict` y `Secure` cuando se sirve por HTTPS.
 - API keys sin rol de administrador.
 - Consultas SQL parametrizadas y errores internos sin trazas expuestas.
-- CSP estricta sin scripts inline, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` y HSTS (con HTTPS).
+- CSP con `script-src 'self'` (sin scripts inline) y `style-src` con `'unsafe-inline'` y Google Fonts; `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` y HSTS (en Nginx siempre; en FastAPI cuando `COOKIE_SECURE=true`). HSTS solo surte efecto sobre HTTPS.
 - `Cache-Control: no-store` en respuestas con datos personales, de búsqueda y autenticación.
 - `Server-Timing` y `X-Request-ID` para medir y correlacionar latencia.
 

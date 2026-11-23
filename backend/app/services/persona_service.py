@@ -10,6 +10,7 @@ from sqlalchemy import bindparam, text
 
 from app import config
 from app.db import engine
+from app.errors import QueryExecutionError
 from app.sql.queries import (
     CANDIDATOS_DNI,
     CANDIDATOS_TSQUERY,
@@ -55,13 +56,13 @@ def _query_seguro(conn, sql: str, params: dict, *, timeout_ms: int = 2500) -> li
     except Exception as exc:
         # Los timeouts son parte del funcionamiento normal cuando los índices
         # opcionales no están creados; no hace falta volcar la traza completa.
-        logger.warning("Consulta de búsqueda cancelada o fallida: %s", exc)
+        logger.warning("Consulta de búsqueda cancelada o fallida: %s", type(exc).__name__)
         try:
             conn.execute(text("ROLLBACK TO SAVEPOINT busqueda_query"))
             conn.execute(text("RELEASE SAVEPOINT busqueda_query"))
         except Exception:
             logger.debug("No se pudo liberar el savepoint de búsqueda", exc_info=True)
-        return []
+        raise QueryExecutionError("No se pudo ejecutar la búsqueda") from exc
 
 
 def _agregar_dnis(destino: list[str], filas: list[dict], limite: int) -> None:
@@ -161,7 +162,7 @@ def buscar_personas(
                 ),
                 limite_candidatos,
             )
-            if len(dnis) < limit:
+            if len(dnis) < limite_candidatos:
                 ts_pref = " & ".join(palabras[:-1] + [f"{palabras[-1]}:*"])
                 _agregar_dnis(
                     dnis,
@@ -173,7 +174,7 @@ def buscar_personas(
                     ),
                     limite_candidatos,
                 )
-            if len(dnis) < limit:
+            if len(dnis) < limite_candidatos:
                 ts_or = " | ".join(palabras)
                 _agregar_dnis(
                     dnis,

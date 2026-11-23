@@ -44,6 +44,7 @@
 
   async function apiFetch(url, options) {
     const opts = Object.assign({ credentials: 'include' }, options || {});
+    opts.headers = Object.assign({ 'X-Requested-With': 'XMLHttpRequest' }, opts.headers || {});
     let timeoutId = null;
     if (!opts.signal) {
       // Evita que la interfaz quede cargando indefinidamente si la red o el
@@ -240,7 +241,7 @@
     if (!container) return;
     const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     const focusables = Array.from(container.querySelectorAll(selector))
-      .filter((el) => el.offsetParent !== null || el === document.activeElement);
+      .filter((el) => el.getClientRects().length > 0 || el === document.activeElement);
     if (!focusables.length) return;
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
@@ -343,6 +344,14 @@
 
   /* ── Parallax Blobs ────────────────────────────────────── */
   function initParallax() {
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (typeof motionQuery.addEventListener === 'function') {
+      motionQuery.addEventListener('change', () => {
+        if (motionQuery.matches) {
+          document.querySelectorAll('.bg-blob').forEach((el) => { el.style.transform = ''; });
+        }
+      });
+    }
     const blobs = document.querySelectorAll('.bg-blob');
     if (!blobs.length) return;
     if (window.matchMedia('(hover: none)').matches || prefersReducedMotion()) return;
@@ -367,7 +376,7 @@
   function toast(msg, type = 'info', opts = {}) {
     const el = document.createElement('div');
     el.className = `toast toast--${type}`;
-    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    el.setAttribute('data-toast-kind', type === 'error' ? 'alert' : 'status');
     const icon = document.createElement('span');
     icon.className = 'material-symbols-outlined';
     icon.textContent = TOAST_ICONS[type] || TOAST_ICONS.info;
@@ -498,6 +507,8 @@
     }
     modeDni.classList.toggle('mode-btn--active', mode === 'dni');
     modeNombre.classList.toggle('mode-btn--active', mode === 'nombre');
+    modeDni.setAttribute('aria-pressed', String(mode === 'dni'));
+    modeNombre.setAttribute('aria-pressed', String(mode === 'nombre'));
     if (modeGlider) {
       modeGlider.classList.toggle('mode-glider--nombre', mode === 'nombre');
     }
@@ -567,13 +578,24 @@
     return ((primerNombre[0] || '') + (primerApe[0] || '')).toUpperCase() || (sexoLetra(p.sexo) === 'F' ? 'F' : 'M');
   }
 
+  const highlightCache = new Map();
+  function highlightRegex(busqueda) {
+    let re = highlightCache.get(busqueda);
+    if (!re) {
+      const safe = busqueda.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      re = new RegExp(`(${safe})`, 'gi');
+      if (highlightCache.size > 50) highlightCache.clear();
+      highlightCache.set(busqueda, re);
+    }
+    re.lastIndex = 0;
+    return re;
+  }
+
   function resultItemHtml(p, i, busqueda) {
     const n = nombre(p);
     let nHtml = escHtml(n || '-');
     if (busqueda && n) {
-      const safe = busqueda.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp(`(${safe})`, 'gi');
-      nHtml = escHtml(n).replace(re, '<mark>$1</mark>');
+      nHtml = escHtml(n).replace(highlightRegex(busqueda), '<mark>$1</mark>');
     }
     const g = sexoLetra(p.sexo);
     const active = personaSeleccionada && personaSeleccionada.dni === p.dni ? ' result-item--active' : '';
@@ -1232,12 +1254,19 @@
   /* ═══════════════════════════════════════════════════════════════════
      ÁRBOL GENEALÓGICO INTERACTIVO — Interactive Graph & Pan/Zoom Canvas
      ═══════════════════════════════════════════════════════════════════ */
+  let treeFrame = 0;
+  let lastZoomPercent = -1;
   function applyTreeTransform() {
-    if (!treeCanvas) return;
-    treeCanvas.style.transform = `translate(${treePanX}px, ${treePanY}px) scale(${treeZoom})`;
-    if (treeZoomLabel) {
-      treeZoomLabel.textContent = `${Math.round(treeZoom * 100)}%`;
-    }
+    if (!treeCanvas || treeFrame) return;
+    treeFrame = requestAnimationFrame(() => {
+      treeFrame = 0;
+      treeCanvas.style.transform = `translate(${treePanX}px, ${treePanY}px) scale(${treeZoom})`;
+      const percent = Math.round(treeZoom * 100);
+      if (treeZoomLabel && percent !== lastZoomPercent) {
+        treeZoomLabel.textContent = `${percent}%`;
+        lastZoomPercent = percent;
+      }
+    });
   }
 
   function resetTreeTransform() {
@@ -1271,12 +1300,30 @@
       const container = treeContainer;
       if (!container) return;
 
-      const w = Math.max(container.scrollWidth || 1000, 900);
-      const h = Math.max(container.scrollHeight || 700, 600);
+      let w = Math.max(container.scrollWidth || 1000, 900);
+      let h = Math.max(container.scrollHeight || 700, 600);
+      // Algunos navegadores rechazan canvas muy grandes; acotamos la exportación.
+      const maxSide = 4096;
+      const fit = Math.min(1, maxSide / (w + 60), maxSide / (h + 60));
+      w = Math.round(w * fit);
+      h = Math.round(h * fit);
+
+      let css = '';
+      for (const sheet of Array.from(document.styleSheets)) {
+        try {
+          for (const rule of Array.from(sheet.cssRules || [])) {
+            if (rule.cssText && /tree-|btn-node-mini|material-symbols-outlined/.test(rule.cssText)) {
+              css += rule.cssText + '\n';
+            }
+          }
+        } catch (_) { /* hoja de otro origen */ }
+      }
+      css = css.replace(/<\/style/gi, '<\\/style');
 
       const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${w + 60}" height="${h + 60}">
         <foreignObject width="100%" height="100%">
-          <div xmlns="http://www.w3.org/1999/xhtml" style="background:#070709; color:#f8fafc; padding:30px; font-family:system-ui, sans-serif;">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="background:#070709; color:#f8fafc; padding:30px; font-family:Inter, system-ui, sans-serif;">
+            <style>${css}</style>
             ${container.innerHTML}
           </div>
         </foreignObject>
@@ -1299,8 +1346,10 @@
           if (!pngBlob) return;
           const a = document.createElement('a');
           a.download = `arbol_genealogico_${titularDni || 'familiar'}.png`;
-          a.href = URL.createObjectURL(pngBlob);
+          const pngUrl = URL.createObjectURL(pngBlob);
+          a.href = pngUrl;
           a.click();
+          setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
           toast('Árbol descargado en formato PNG', 'success');
         });
       };
@@ -1853,13 +1902,13 @@
     html += '<div class="tree-tabs" role="tablist" aria-label="Secciones del árbol">';
     tabs.forEach(([key, label, count]) => {
       const active = key === treeListTab;
-      html += `<button type="button" class="tree-tab${active ? ' tree-tab--active' : ''}" role="tab" aria-selected="${active ? 'true' : 'false'}" data-tree-tab="${key}">
+      html += `<button type="button" id="tree-tab-${key}" class="tree-tab${active ? ' tree-tab--active' : ''}" role="tab" aria-selected="${active ? 'true' : 'false'}" aria-controls="tree-panel-${key}" data-tree-tab="${key}">
         ${label}<span class="tree-tab__count">${count}</span>
       </button>`;
     });
     html += '</div>';
 
-    html += `<div class="tree-list__section" role="tabpanel" aria-label="${escHtml(tabs.find(([key]) => key === treeListTab)[1])}">`;
+    html += `<div id="tree-panel-${treeListTab}" class="tree-list__section" role="tabpanel" aria-labelledby="tree-tab-${treeListTab}">`;
     if (treeListTab === 'padres') {
       if (!padres.length) {
         html += '<p class="tree-list__empty">No se encontraron progenitores en el padrón.</p>';
@@ -1990,6 +2039,17 @@
   }
 
   function handleTreeKeydown(e) {
+    const tabBtn = e.target.closest('[data-tree-tab]');
+    if (tabBtn && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+      e.preventDefault();
+      const tabs = Array.from(treeContainer.querySelectorAll('[data-tree-tab]'));
+      const i = tabs.indexOf(tabBtn);
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
+        : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[next].focus();
+      tabs[next].click();
+      return;
+    }
     const card = e.target.closest('.tree-node, .tree-list-item');
     if (!card) return;
     if (e.key === 'Enter' || e.key === ' ') {
@@ -2349,7 +2409,7 @@
   }
 
   function cacheSearchResults(key, data) {
-    if (!Array.isArray(data) || !data.length) return;
+    if (!Array.isArray(data)) return;
     searchCache.delete(key);
     searchCache.set(key, { data, ts: Date.now() });
     while (searchCache.size > SEARCH_CACHE_MAX) {
@@ -2914,7 +2974,9 @@
   });
 
   /* ── Service Worker (PWA) ────────────────────────────────── */
-  if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+  const swAllowed = window.location.protocol === 'https:' ||
+    ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  if ('serviceWorker' in navigator && swAllowed) {
     const showUpdateToast = (registration) => {
       if (!registration || !registration.waiting) return;
       toast('Nueva versión disponible. Recarga para actualizar.', 'info', {

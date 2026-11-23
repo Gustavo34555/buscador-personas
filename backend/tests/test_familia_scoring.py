@@ -29,9 +29,7 @@ def _persona(**overrides):
 
 
 def test_progenitor_con_un_solo_nombre_es_evidencia_debil():
-    puntos, conflicto, evidencia = fs._compatibilidad_campos_progenitor(
-        "MANUEL JESUS", "MANUEL"
-    )
+    puntos, conflicto, evidencia = fs._compatibilidad_campos_progenitor("MANUEL JESUS", "MANUEL")
     assert puntos == 10
     assert conflicto is False
     assert evidencia[0]["codigo"] == "progenitor_primer_nombre"
@@ -52,9 +50,7 @@ def test_dos_coincidencias_debiles_forman_hermano_completo():
         "ubigeo_dir": "LIMA-LIMA-LIMA",
         "direccion": "AV. SIEMPRE VIVA 123",
     }
-    puntos, _, tipo, conflicto = fs._puntuar_hermano(
-        candidato, persona, persona["padre"], persona["madre"]
-    )
+    puntos, _, tipo, conflicto = fs._puntuar_hermano(candidato, persona, persona["padre"], persona["madre"])
     assert conflicto is False
     assert tipo == "hermano_completo"
     assert puntos >= 60
@@ -75,9 +71,7 @@ def test_medio_hermano_solo_por_primer_nombre_sin_contexto_se_descarta():
         "ubigeo_dir": "CUSCO-CUSCO-CUSCO",
         "direccion": "CALLE OTRA 456",
     }
-    _, _, tipo, conflicto = fs._puntuar_hermano(
-        candidato, persona, persona["padre"], persona["madre"]
-    )
+    _, _, tipo, conflicto = fs._puntuar_hermano(candidato, persona, persona["padre"], persona["madre"])
     assert conflicto is True
     assert tipo == "debil_sin_contexto"
 
@@ -98,9 +92,7 @@ def test_medio_hermano_debil_con_misma_provincia_queda_como_probable():
         "ubigeo_dir": "LIMA-LIMA-SAN MARTIN DE PORRES",
         "direccion": "CALLE OTRA 456",
     }
-    puntos, _, tipo, conflicto = fs._puntuar_hermano(
-        candidato, persona, persona["padre"], persona["madre"]
-    )
+    puntos, _, tipo, conflicto = fs._puntuar_hermano(candidato, persona, persona["padre"], persona["madre"])
     assert conflicto is False
     assert tipo == "hermano_probable"
     assert puntos < 40
@@ -121,9 +113,7 @@ def test_hijo_con_nombre_exacto_se_confirma():
         "ubigeo_dir": "LIMA-LIMA-LIMA",
         "direccion": "AV. SIEMPRE VIVA 123",
     }
-    puntos, _, conflicto, probable = fs._puntuar_hijo(
-        candidato, persona, "madre", "ap_mat"
-    )
+    puntos, _, conflicto, probable = fs._puntuar_hijo(candidato, persona, "madre", "ap_mat")
     assert conflicto is False
     assert probable is False
     assert puntos >= 60
@@ -163,9 +153,7 @@ def test_hijo_con_nombres_en_otro_orden_y_misma_zona_queda_probable():
         "ubigeo_dir": "LIMA-LIMA-SAN MARTIN DE PORRES",
         "direccion": "CALLE OTRA 456",
     }
-    puntos, _, conflicto, probable = fs._puntuar_hijo(
-        candidato, persona, "madre", "ap_mat"
-    )
+    puntos, _, conflicto, probable = fs._puntuar_hijo(candidato, persona, "madre", "ap_mat")
     assert conflicto is False
     assert probable is True
     assert puntos < 40

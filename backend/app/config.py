@@ -61,9 +61,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL:
     raise RuntimeError("No se encontró DATABASE_URL en el archivo .env")
 if IS_PRODUCTION and "CAMBIAR_PASSWORD" in DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL contiene la contraseña de ejemplo; define una contraseña real"
-    )
+    raise RuntimeError("DATABASE_URL contiene la contraseña de ejemplo; define una contraseña real")
 
 # ── Secretos ────────────────────────────────────────────────────────────
 _INSECURE_SECRETS = {
@@ -169,6 +167,4 @@ _INSECURE_ADMIN_PASSWORDS = {
     "password",
 }
 if IS_PRODUCTION and ADMIN_PASSWORD.lower() in _INSECURE_ADMIN_PASSWORDS:
-    raise RuntimeError(
-        "ADMIN_PASSWORD usa un valor de ejemplo o demasiado común; cámbialo"
-    )
+    raise RuntimeError("ADMIN_PASSWORD usa un valor de ejemplo o demasiado común; cámbialo")

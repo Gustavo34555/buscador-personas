@@ -85,14 +85,18 @@ def verificar_credenciales(username: str, password: str) -> dict | None:
     ocultar una caída como si fueran credenciales inválidas.
     """
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT id, username, password_hash, rol, consultas_max, "
-                "consultas_usadas, activo, COALESCE(token_version, 0) AS token_version "
-                "FROM usuarios WHERE username = :username"
-            ),
-            {"username": username},
-        ).mappings().first()
+        row = (
+            conn.execute(
+                text(
+                    "SELECT id, username, password_hash, rol, consultas_max, "
+                    "consultas_usadas, activo, COALESCE(token_version, 0) AS token_version "
+                    "FROM usuarios WHERE username = :username"
+                ),
+                {"username": username},
+            )
+            .mappings()
+            .first()
+        )
 
     if not row:
         # Igualar el tiempo de respuesta para no filtrar qué usuarios existen.
@@ -113,14 +117,18 @@ def verificar_credenciales(username: str, password: str) -> dict | None:
 def obtener_usuario_por_id(user_id: int) -> dict | None:
     """Obtiene un usuario por su ID."""
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT id, username, rol, consultas_max, consultas_usadas, activo, "
-                "created_at, COALESCE(token_version, 0) AS token_version "
-                "FROM usuarios WHERE id = :id"
-            ),
-            {"id": user_id},
-        ).mappings().first()
+        row = (
+            conn.execute(
+                text(
+                    "SELECT id, username, rol, consultas_max, consultas_usadas, activo, "
+                    "created_at, COALESCE(token_version, 0) AS token_version "
+                    "FROM usuarios WHERE id = :id"
+                ),
+                {"id": user_id},
+            )
+            .mappings()
+            .first()
+        )
         return dict(row) if row else None
 
 
@@ -164,9 +172,10 @@ def consumir_consulta(user_id: int, es_admin: bool = False) -> int | None:
         return None
 
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                """
+        row = (
+            conn.execute(
+                text(
+                    """
                 UPDATE usuarios
                 SET consultas_usadas = consultas_usadas + 1
                 WHERE id = :id
@@ -174,9 +183,12 @@ def consumir_consulta(user_id: int, es_admin: bool = False) -> int | None:
                   AND consultas_usadas < consultas_max
                 RETURNING consultas_max - consultas_usadas AS restantes
                 """
-            ),
-            {"id": user_id},
-        ).mappings().first()
+                ),
+                {"id": user_id},
+            )
+            .mappings()
+            .first()
+        )
         conn.commit()
         return int(row["restantes"]) if row else None
 
@@ -186,10 +198,7 @@ def reembolsar_consulta(user_id: int) -> None:
     try:
         with engine.connect() as conn:
             conn.execute(
-                text(
-                    "UPDATE usuarios SET consultas_usadas = GREATEST(consultas_usadas - 1, 0) "
-                    "WHERE id = :id"
-                ),
+                text("UPDATE usuarios SET consultas_usadas = GREATEST(consultas_usadas - 1, 0) WHERE id = :id"),
                 {"id": user_id},
             )
             conn.commit()
@@ -208,13 +217,17 @@ def consultas_restantes(user_id: int) -> int:
 def obtener_usuarios() -> list[dict]:
     """Lista todos los usuarios (para el admin)."""
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                "SELECT id, username, rol, consultas_max, consultas_usadas, activo, "
-                "created_at, COALESCE(token_version, 0) AS token_version "
-                "FROM usuarios ORDER BY id"
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT id, username, rol, consultas_max, consultas_usadas, activo, "
+                    "created_at, COALESCE(token_version, 0) AS token_version "
+                    "FROM usuarios ORDER BY id"
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [dict(r) for r in rows]
 
 
@@ -223,23 +236,27 @@ def crear_usuario(username: str, password: str, rol: str, consultas_max: int) ->
     pw_hash = hash_password(password)
     try:
         with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    """
+            row = (
+                conn.execute(
+                    text(
+                        """
                     INSERT INTO usuarios
                         (username, password_hash, rol, consultas_max, consultas_usadas, activo, token_version)
                     VALUES (:username, :password_hash, :rol, :consultas_max, 0, true, 0)
                     RETURNING id, username, rol, consultas_max, consultas_usadas, activo,
                               created_at, token_version
                     """
-                ),
-                {
-                    "username": username,
-                    "password_hash": pw_hash,
-                    "rol": rol,
-                    "consultas_max": consultas_max,
-                },
-            ).mappings().first()
+                    ),
+                    {
+                        "username": username,
+                        "password_hash": pw_hash,
+                        "rol": rol,
+                        "consultas_max": consultas_max,
+                    },
+                )
+                .mappings()
+                .first()
+            )
             conn.commit()
             return dict(row) if row else None
     except IntegrityError:
@@ -279,9 +296,7 @@ def actualizar_usuario(
         return obtener_usuario_por_id(user_id)
 
     query = (
-        "UPDATE usuarios SET "
-        + ", ".join(sets)
-        + " WHERE id = :id RETURNING id, username, rol, consultas_max, "
+        "UPDATE usuarios SET " + ", ".join(sets) + " WHERE id = :id RETURNING id, username, rol, consultas_max, "
         "consultas_usadas, activo, created_at, COALESCE(token_version, 0) AS token_version"
     )
 
@@ -312,16 +327,12 @@ def asegurar_admin() -> None:
     no hace nada.
     """
     if not ADMIN_PASSWORD:
-        logger.warning(
-            "ADMIN_PASSWORD no configurado; no se creará un administrador inicial"
-        )
+        logger.warning("ADMIN_PASSWORD no configurado; no se creará un administrador inicial")
         return
 
     try:
         with engine.connect() as conn:
-            existe = conn.execute(
-                text("SELECT 1 FROM usuarios WHERE rol = 'admin' LIMIT 1")
-            ).first()
+            existe = conn.execute(text("SELECT 1 FROM usuarios WHERE rol = 'admin' LIMIT 1")).first()
             if existe:
                 return
 

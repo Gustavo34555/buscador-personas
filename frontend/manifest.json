@@ -4,8 +4,8 @@
   "description": "Consulta de referencia del padrón de identificación de Perú por DNI o nombre completo.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09090b",
-  "theme_color": "#09090b",
+  "background_color": "#070709",
+  "theme_color": "#070709",
   "icons": [
     {
       "src": "icon.svg",

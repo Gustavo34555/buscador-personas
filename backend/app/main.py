@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -20,13 +22,29 @@ from app.schemas import StatusResponse
 from app.services import auth_service
 from app.services.ruc_service import RucService
 
+
 # Configurar logging estructurado básico
-logging.basicConfig(
-    level=logging.INFO,
-    format='{"time": "%(asctime)s", "level": "%(levelname)s", "name": "%(name)s", "message": "%(message)s"}',
-    datefmt="%Y-%m-%dT%H:%M:%S%z",
-)
+class JsonFormatter(logging.Formatter):
+    """Serializa cada registro como JSON válido, incluso con comillas en el mensaje."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "name": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+logging.basicConfig(level=logging.INFO)
+for _handler in logging.getLogger().handlers:
+    _handler.setFormatter(JsonFormatter())
 logger = logging.getLogger(__name__)
+
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
 
 @asynccontextmanager
@@ -46,7 +64,8 @@ app = FastAPI(title="Buscador de Personas API", lifespan=lifespan)
 @app.middleware("http")
 async def security_and_tracing_middleware(request: Request, call_next) -> Response:
     """Inyecta Request-ID, headers de seguridad y mide latencia de peticiones."""
-    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    raw_request_id = request.headers.get("X-Request-ID", "")
+    request_id = raw_request_id if _REQUEST_ID_RE.fullmatch(raw_request_id) else str(uuid.uuid4())
     start_time = time.perf_counter()
 
     response: Response = await call_next(request)
@@ -136,6 +155,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 async def status():
     """Healthcheck activo: verifica conexión a PostgreSQL."""
     try:
+
         def _ping():
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
@@ -148,6 +168,7 @@ async def status():
             status_code=503,
             detail="Servicio no disponible: fallo en conexión a la base de datos",
         ) from exc
+
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 if FRONTEND_DIR.is_dir():

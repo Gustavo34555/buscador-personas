@@ -7,27 +7,23 @@ from app.config import (
     LOGIN_RATE_LIMIT_WINDOW,
     RATE_LIMIT_MAX,
     RATE_LIMIT_WINDOW,
+    REDIS_URL,
     SEARCH_RATE_LIMIT_MAX,
     SEARCH_RATE_LIMIT_WINDOW,
     TRUST_PROXY_HEADERS,
     TRUSTED_PROXIES,
 )
-from app.rate_limit import RateLimiter
+from app.rate_limit import RateLimiter, RedisRateLimiter, build_rate_limiter
 
-# Instancias globales de rate limiters
-search_rate_limiter = RateLimiter(
-    max_hits=SEARCH_RATE_LIMIT_MAX,
-    window=SEARCH_RATE_LIMIT_WINDOW,
+# Instancias globales de rate limiters. Con REDIS_URL se comparten entre workers.
+search_rate_limiter = build_rate_limiter(
+    max_hits=SEARCH_RATE_LIMIT_MAX, window=SEARCH_RATE_LIMIT_WINDOW, prefix="rl:search", redis_url=REDIS_URL
 )
-
-ruc_rate_limiter = RateLimiter(
-    max_hits=RATE_LIMIT_MAX,
-    window=RATE_LIMIT_WINDOW,
+ruc_rate_limiter = build_rate_limiter(
+    max_hits=RATE_LIMIT_MAX, window=RATE_LIMIT_WINDOW, prefix="rl:ruc", redis_url=REDIS_URL
 )
-
-login_rate_limiter = RateLimiter(
-    max_hits=LOGIN_RATE_LIMIT_MAX,
-    window=LOGIN_RATE_LIMIT_WINDOW,
+login_rate_limiter = build_rate_limiter(
+    max_hits=LOGIN_RATE_LIMIT_MAX, window=LOGIN_RATE_LIMIT_WINDOW, prefix="rl:login", redis_url=REDIS_URL
 )
 
 
@@ -59,7 +55,7 @@ def get_client_host(request: Request) -> str:
     return peer
 
 
-def get_rate_limiter(limiter: RateLimiter, prefix: str) -> Callable[[Request], None]:
+def get_rate_limiter(limiter: RateLimiter | RedisRateLimiter, prefix: str) -> Callable[[Request], None]:
     """Retorna una dependencia que verifica el rate limit basado en la IP del cliente."""
 
     def _rate_limit_dependency(request: Request) -> None:

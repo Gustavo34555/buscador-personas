@@ -57,15 +57,15 @@ CREATE INDEX IF NOT EXISTS idx_personas_ap_pat_soundex
     ON personas (ap_pat_soundex);
 
 -- 7) Buckets por componente con Index-Only Scan (INCLUDE)
-CREATE INDEX IF NOT EXISTS idx_personas_ap_pat_lower
-    ON personas (lower(ap_pat) text_pattern_ops) INCLUDE (dni, nombres, ap_mat);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_personas_ap_pat_lower
+    ON personas (immutable_unaccent(lower(ap_pat)) text_pattern_ops) INCLUDE (dni, nombres, ap_mat);
 
-CREATE INDEX IF NOT EXISTS idx_personas_nombres_lower
-    ON personas (lower(nombres) text_pattern_ops) INCLUDE (dni, ap_pat, ap_mat);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_personas_nombres_lower
+    ON personas (immutable_unaccent(lower(nombres)) text_pattern_ops) INCLUDE (dni, ap_pat, ap_mat);
 
-DROP INDEX IF EXISTS idx_personas_ap_mat_lower;
-CREATE INDEX IF NOT EXISTS idx_personas_ap_mat_lower
-    ON personas (lower(ap_mat) text_pattern_ops) INCLUDE (dni, nombres, ap_pat);
+DROP INDEX CONCURRENTLY IF EXISTS idx_personas_ap_mat_lower;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_personas_ap_mat_lower
+    ON personas (immutable_unaccent(lower(ap_mat)) text_pattern_ops) INCLUDE (dni, nombres, ap_pat);
 
 -- 8) Actualizar estadísticas del optimizador de consultas
 VACUUM ANALYZE personas;
