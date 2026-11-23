@@ -144,6 +144,13 @@ def _anios_entre(nacimiento: Any, referencia: Any) -> float | None:
     return (d_ref - d_nac).days / 365.25
 
 
+_EVIDENCIA_NOMBRE_FUERTE = {"nombre_exacto", "nombre_ordenado", "nombre_tokens"}
+
+
+def _nombre_es_fuerte(ev_nombre: list[dict]) -> bool:
+    return any(e.get("codigo") in _EVIDENCIA_NOMBRE_FUERTE for e in ev_nombre)
+
+
 def _nivel_confianza(puntos: float) -> str:
     if puntos >= config.FAMILIA_UMBRAL_ALTA:
         return "alta"
@@ -418,12 +425,23 @@ def _puntuar_nombre_registrado(
                     puntos,
                 )
             )
+        elif len(nombres_reg) == 1 and len(nombres_cand) > 1:
+            # "MANUEL" contra "MANUEL JESUS" no confirma por sí solo:
+            # comparte el primer nombre con muchísimas personas.
+            puntos = 15 if not estricto else 10
+            evidencias.append(
+                _evidencia(
+                    "nombre_primer_token",
+                    "Solo coincide el primer nombre registrado",
+                    puntos,
+                )
+            )
         else:
             puntos = 25 if not estricto else 15
             evidencias.append(
                 _evidencia(
                     "nombre_tokens",
-                    "Todos los nombres coinciden",
+                    "Todos los nombres registrados coinciden",
                     puntos,
                 )
             )
@@ -661,6 +679,18 @@ def _puntuar_progenitor(
     puntos_dir, ev_dir = _evidencia_direccion(candidato, hijo)
     puntos += puntos_dir
     evidencias.extend(ev_dir)
+
+    if not _nombre_es_fuerte(ev_nombre) and not any(
+        e.get("codigo") == "misma_direccion" for e in ev_dir
+    ):
+        puntos = min(puntos, config.FAMILIA_UMBRAL_MEDIA - 1)
+        evidencias.append(
+            _evidencia(
+                "progenitor_evidencia_debil",
+                "Nombre del progenitor incompleto: requiere verificación",
+                0,
+            )
+        )
 
     return max(0, min(100, puntos)), evidencias, False
 
@@ -1030,11 +1060,22 @@ def _puntuar_hermano(
     apoyo_contexto = min(puntos_geo, 10) + min(puntos_dir, 8)
 
     if padre_ok and madre_ok:
-        tipo = "hermano_completo"
+        tipo = "hermano_completo" if (padre_fuerte and madre_fuerte) else "hermano_probable"
+        if tipo == "hermano_probable":
+            puntos = min(puntos, config.FAMILIA_UMBRAL_MEDIA - 1)
+            evidencias.append(
+                _evidencia(
+                    "progenitores_debiles",
+                    "Uno o ambos nombres de los progenitores son incompletos",
+                    0,
+                )
+            )
     elif padre_ok:
-        tipo = "medio_hermano_paterno" if (padre_fuerte or apoyo_contexto >= 6) else "hermano_probable"
+        confirmado = (padre_fuerte and apoyo_contexto >= 4) or apoyo_contexto >= 10
+        tipo = "medio_hermano_paterno" if confirmado else "hermano_probable"
     elif madre_ok:
-        tipo = "medio_hermano_materno" if (madre_fuerte or apoyo_contexto >= 6) else "hermano_probable"
+        confirmado = (madre_fuerte and apoyo_contexto >= 4) or apoyo_contexto >= 10
+        tipo = "medio_hermano_materno" if confirmado else "hermano_probable"
     else:
         tipo = "hermano_probable"
 
