@@ -153,8 +153,8 @@ RUC_API_BASE = os.getenv("RUC_API_BASE", "https://peruapi.com/api")
 FAMILIA_CANDIDATOS = _int("FAMILIA_CANDIDATOS", 300, minimum=10)
 FAMILIA_LIMITE_DEFAULT = _int("FAMILIA_LIMITE_DEFAULT", 50, minimum=1)
 FAMILIA_LIMITE_MAX = _int("FAMILIA_LIMITE_MAX", 200, minimum=1)
-FAMILIA_UMBRAL_ALTA = _int("FAMILIA_UMBRAL_ALTA", 60, minimum=0)
-FAMILIA_UMBRAL_MEDIA = _int("FAMILIA_UMBRAL_MEDIA", 40, minimum=0)
+FAMILIA_UMBRAL_ALTA = _int("FAMILIA_UMBRAL_ALTA", 70, minimum=0)
+FAMILIA_UMBRAL_MEDIA = _int("FAMILIA_UMBRAL_MEDIA", 50, minimum=0)
 BUSCAR_CANDIDATOS = _int("BUSCAR_CANDIDATOS", 300, minimum=50)
 
 # ── Administración inicial ──────────────────────────────────────────────

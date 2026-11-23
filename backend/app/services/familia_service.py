@@ -151,12 +151,52 @@ def _nombre_es_fuerte(ev_nombre: list[dict]) -> bool:
     return any(e.get("codigo") in _EVIDENCIA_NOMBRE_FUERTE for e in ev_nombre)
 
 
-def _nivel_confianza(puntos: float) -> str:
+_CATEGORIA_EVIDENCIA = {
+    **{c: "apellido" for c in (
+        "apellido_heredado", "apellido_paterno", "apellido_materno",
+        "apellido_materno_extra", "apellido_materno_distinto",
+    )},
+    **{c: "nombre" for c in (
+        "nombre_exacto", "nombre_ordenado", "nombre_tokens", "progenitor_exacto",
+        "progenitor_prefijo", "progenitor_tokens", "nombre_primer_token",
+        "progenitor_primer_nombre", "progenitor_token_unico",
+    )},
+    **{c: "sexo" for c in ("sexo",)},
+    **{c: "edad" for c in (
+        "edad_optima", "edad_valida", "edad_cercana", "edad_compatible",
+        "edad_reproductiva", "edad_posible",
+    )},
+    **{c: "geografia" for c in (
+        "ubigeo_nac_distrito", "ubigeo_nac_provincia", "ubigeo_nac_departamento",
+        "ubigeo_dir_igual", "ubigeo_dir_provincia", "ubigeo_dir_departamento",
+        "nac_candidato_dir_referencia", "dir_candidato_nac_referencia",
+    )},
+    **{c: "domicilio" for c in (
+        "misma_direccion", "mismo_numero_direccion", "direccion_similar",
+        "numero_direccion_distinto",
+    )},
+    **{c: "documento" for c in ("misma_inscripcion", "misma_emision", "misma_caducidad")},
+    **{c: "progenitores" for c in ("ambos_progenitores",)},
+}
+
+
+def _nivel_confianza(puntos: float, evidencias: list[dict] | None = None) -> str:
+    """La confianza alta exige evidencia independiente, no solo muchos puntos."""
+    nivel = "baja"
     if puntos >= config.FAMILIA_UMBRAL_ALTA:
-        return "alta"
-    if puntos >= config.FAMILIA_UMBRAL_MEDIA:
-        return "media"
-    return "baja"
+        nivel = "alta"
+    elif puntos >= config.FAMILIA_UMBRAL_MEDIA:
+        nivel = "media"
+
+    if evidencias is not None and nivel != "baja":
+        categorias = {
+            _CATEGORIA_EVIDENCIA.get(e.get("codigo") or "")
+            for e in evidencias
+        } - {None}
+        minimo = 4 if nivel == "alta" else 3
+        if len(categorias) < minimo:
+            nivel = "media" if nivel == "alta" else "baja"
+    return nivel
 
 
 def _evidencia(codigo: str, descripcion: str, puntos: int) -> dict[str, Any]:
@@ -239,7 +279,12 @@ def _evidencia_geografica(candidato: dict, referencia: dict) -> tuple[int, list[
         puntos += 5
         evidencias.append(_evidencia("ubigeo_dir_igual", "Mismo ubigeo de residencia", 5))
     else:
-        if dep_dir_c and dep_dir_c == dep_dir_r:
+        partes_c = [normalizar(x) for x in str(dir_c or "").split("-") if normalizar(x)]
+        partes_r = [normalizar(x) for x in str(dir_r or "").split("-") if normalizar(x)]
+        if len(partes_c) >= 2 and len(partes_r) >= 2 and partes_c[:2] == partes_r[:2]:
+            puntos += 3
+            evidencias.append(_evidencia("ubigeo_dir_provincia", "Misma provincia de residencia", 3))
+        elif dep_dir_c and dep_dir_c == dep_dir_r:
             puntos += 4
             evidencias.append(_evidencia("ubigeo_dir_departamento", "Mismo departamento de residencia", 4))
 
@@ -740,7 +785,7 @@ def _resumen_candidato(candidato: dict, puntos: int, evidencias: list[dict]) -> 
         "fecha_nac": str(candidato.get("fecha_nac")) if candidato.get("fecha_nac") else None,
         "sexo": candidato.get("sexo"),
         "confianza": int(puntos),
-        "nivel_confianza": _nivel_confianza(puntos),
+        "nivel_confianza": _nivel_confianza(puntos, evidencias),
         "evidencia": evidencias,
     }
 
@@ -770,7 +815,7 @@ def _nodo(
         "ubigeo_dir": fila.get("ubigeo_dir"),
         "encontrado": True,
         "confianza": int(puntos),
-        "nivel_confianza": _nivel_confianza(puntos),
+        "nivel_confianza": _nivel_confianza(puntos, evidencias),
         "evidencia": evidencias,
         "candidatos": candidatos or [],
         "tipo_relacion": tipo_relacion,
@@ -804,7 +849,7 @@ def _nodo_placeholder(
         "ubigeo_dir": None,
         "encontrado": False,
         "confianza": int(max(0, puntos)),
-        "nivel_confianza": _nivel_confianza(max(0, puntos)),
+        "nivel_confianza": _nivel_confianza(max(0, puntos), []),
         "evidencia": [],
         "candidatos": candidatos or [],
         "tipo_relacion": tipo_relacion,

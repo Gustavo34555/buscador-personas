@@ -53,7 +53,7 @@ def test_dos_coincidencias_debiles_no_confirman_hermano_completo():
     puntos, _, tipo, conflicto = fs._puntuar_hermano(candidato, persona, persona["padre"], persona["madre"])
     assert conflicto is False
     assert tipo == "hermano_probable"
-    assert puntos < 40
+    assert puntos < 50
 
 
 def test_medio_hermano_solo_por_primer_nombre_sin_contexto_se_descarta():
@@ -95,7 +95,7 @@ def test_medio_hermano_debil_con_misma_provincia_queda_como_probable():
     puntos, _, tipo, conflicto = fs._puntuar_hermano(candidato, persona, persona["padre"], persona["madre"])
     assert conflicto is False
     assert tipo == "hermano_probable"
-    assert puntos < 40
+    assert puntos < 50
 
 
 def test_hijo_con_nombre_exacto_se_confirma():
@@ -156,7 +156,7 @@ def test_hijo_con_nombres_en_otro_orden_y_misma_zona_queda_probable():
     puntos, _, conflicto, probable = fs._puntuar_hijo(candidato, persona, "madre", "ap_mat")
     assert conflicto is False
     assert probable is True
-    assert puntos < 40
+    assert puntos < 50
 
 
 def test_hermanos_con_progenitores_completos_se_confirman():
@@ -239,3 +239,11 @@ def test_numero_de_domicilio_solo_penaliza_calles_similares():
     puntos, evidencias = fs._evidencia_direccion(calle_distinta, referencia)
     assert puntos == 0
     assert evidencias == []
+
+
+def test_umbrales_de_confianza_son_estrictos():
+    """Solo evidencia muy sólida debe figurar como confianza alta."""
+    from app import config
+
+    assert config.FAMILIA_UMBRAL_ALTA >= 70
+    assert config.FAMILIA_UMBRAL_MEDIA >= 50
