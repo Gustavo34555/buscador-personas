@@ -94,7 +94,7 @@ _ALIAS_DEPARTAMENTO: dict[str, str] = {
 _CAMPOS_CANDIDATO = """
     p.dni, p.ap_pat, p.ap_mat, p.nombres, p.padre, p.madre,
     p.fecha_nac, p.ubigeo_nac, p.ubigeo_dir, p.direccion,
-    p.est_civil, p.dig_ruc,
+    p.est_civil, p.dig_ruc, p.fch_inscripcion, p.fch_emision, p.fch_caducidad,
     CASE
         WHEN p.sexo::text = '1' THEN 'Masculino'
         WHEN p.sexo::text = '2' THEN 'Femenino'
@@ -234,9 +234,14 @@ def _evidencia_geografica(candidato: dict, referencia: dict) -> tuple[int, list[
 
     dep_dir_c = departamento_de_ubigeo_dir(dir_c)
     dep_dir_r = departamento_de_ubigeo_dir(dir_r)
-    if dep_dir_c and dep_dir_c == dep_dir_r:
-        puntos += 4
-        evidencias.append(_evidencia("ubigeo_dir_departamento", "Mismo departamento de residencia", 4))
+    dir_c_norm, dir_r_norm = normalizar(dir_c), normalizar(dir_r)
+    if dir_c_norm and dir_c_norm == dir_r_norm:
+        puntos += 5
+        evidencias.append(_evidencia("ubigeo_dir_igual", "Mismo ubigeo de residencia", 5))
+    else:
+        if dep_dir_c and dep_dir_c == dep_dir_r:
+            puntos += 4
+            evidencias.append(_evidencia("ubigeo_dir_departamento", "Mismo departamento de residencia", 4))
 
     # Cruce válido: código de nacimiento contra departamento del domicilio.
     dep_nac_c = departamento_de_ubigeo_nac(nac_c)
@@ -249,6 +254,23 @@ def _evidencia_geografica(candidato: dict, referencia: dict) -> tuple[int, list[
         evidencias.append(_evidencia("dir_candidato_nac_referencia", "Reside donde nació la referencia", 2))
 
     return min(puntos, 12), evidencias
+
+
+def _evidencia_documental(candidato: dict, referencia: dict) -> tuple[int, list[dict]]:
+    """Usa fechas de inscripción/emisión/caducidad como apoyo, nunca como prueba única."""
+    puntos = 0
+    evidencias: list[dict] = []
+    for campo, codigo, descripcion, valor in (
+        ("fch_inscripcion", "misma_inscripcion", "Misma fecha de inscripción", 4),
+        ("fch_emision", "misma_emision", "Misma fecha de emisión", 3),
+        ("fch_caducidad", "misma_caducidad", "Misma fecha de caducidad", 2),
+    ):
+        a = _fecha(candidato.get(campo))
+        b = _fecha(referencia.get(campo))
+        if a and b and a == b:
+            puntos += valor
+            evidencias.append(_evidencia(codigo, descripcion, valor))
+    return min(puntos, 6), evidencias
 
 
 def _normalizar_direccion(valor: Any) -> str:
@@ -278,15 +300,25 @@ def _evidencia_direccion(candidato: dict, referencia: dict) -> tuple[int, list[d
     if not dir_c or not dir_r:
         return 0, []
     if dir_c == dir_r:
-        return 10, [_evidencia("misma_direccion", "Mismo domicilio registrado", 10)]
+        return 12, [_evidencia("misma_direccion", "Mismo domicilio registrado", 12)]
 
+    def numero(texto: str) -> str:
+        for token in reversed(texto.split()):
+            if re.search(r"\d", token):
+                return re.sub(r"\D", "", token)
+        return ""
+
+    num_c, num_r = numero(dir_c), numero(dir_r)
     tokens_c = set(dir_c.split())
     tokens_r = set(dir_r.split())
-    if not tokens_c or not tokens_r:
-        return 0, []
-    jaccard = len(tokens_c & tokens_r) / len(tokens_c | tokens_r)
-    if jaccard >= 0.5:
-        return 5, [_evidencia("direccion_similar", "Domicilio muy similar", 5)]
+    jaccard = len(tokens_c & tokens_r) / len(tokens_c | tokens_r) if tokens_c and tokens_r else 0
+
+    if num_c and num_r and num_c != num_r and jaccard >= 0.34:
+        return -5, [_evidencia("numero_direccion_distinto", "El número de domicilio no coincide", -5)]
+    if num_c and num_c == num_r and jaccard >= 0.34:
+        return 10, [_evidencia("mismo_numero_direccion", "Mismo número de domicilio y vía similar", 10)]
+    if jaccard >= 0.6:
+        return 4, [_evidencia("direccion_similar", "Domicilio similar", 4)]
     return 0, []
 
 
@@ -680,6 +712,10 @@ def _puntuar_progenitor(
     puntos += puntos_dir
     evidencias.extend(ev_dir)
 
+    puntos_doc, ev_doc = _evidencia_documental(candidato, hijo)
+    puntos += puntos_doc
+    evidencias.extend(ev_doc)
+
     if not _nombre_es_fuerte(ev_nombre) and not any(
         e.get("codigo") == "misma_direccion" for e in ev_dir
     ):
@@ -1055,6 +1091,10 @@ def _puntuar_hermano(
     puntos += min(puntos_dir, 8)
     evidencias.extend(ev_dir)
 
+    puntos_doc, ev_doc = _evidencia_documental(candidato, persona)
+    puntos += puntos_doc
+    evidencias.extend(ev_doc)
+
     padre_fuerte = padre_ok and padre_puntos >= 20
     madre_fuerte = madre_ok and madre_puntos >= 20
     apoyo_contexto = min(puntos_geo, 10) + min(puntos_dir, 8)
@@ -1268,6 +1308,10 @@ def _puntuar_hijo(
     puntos_dir, ev_dir = _evidencia_direccion(candidato, persona)
     puntos += min(puntos_dir, 8)
     evidencias.extend(ev_dir)
+
+    puntos_doc, ev_doc = _evidencia_documental(candidato, persona)
+    puntos += puntos_doc
+    evidencias.extend(ev_doc)
 
     apoyo_contexto = min(puntos_geo, 10) + min(puntos_dir, 8)
     probable = False

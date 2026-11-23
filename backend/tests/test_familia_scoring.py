@@ -210,3 +210,32 @@ def test_medio_hermano_requiere_contexto_aun_con_nombre_fuerte():
     assert conflicto is False
     assert tipo == "medio_hermano_paterno"
     assert puntos >= 40
+
+
+def test_evidencia_documental_suma_apoyo_limitado():
+    fechas = {
+        "fch_inscripcion": "2000-01-01",
+        "fch_emision": "2010-01-01",
+        "fch_caducidad": "2020-01-01",
+    }
+    puntos, evidencias = fs._evidencia_documental(fechas, fechas)
+    assert puntos == 6
+    assert {e["codigo"] for e in evidencias} == {
+        "misma_inscripcion",
+        "misma_emision",
+        "misma_caducidad",
+    }
+
+
+def test_numero_de_domicilio_solo_penaliza_calles_similares():
+    referencia = {"direccion": "AV. SIEMPRE VIVA 123"}
+    misma_calle = {"direccion": "AV. SIEMPRE VIVA 456"}
+    calle_distinta = {"direccion": "CALLE OTRA 456"}
+
+    puntos, evidencias = fs._evidencia_direccion(misma_calle, referencia)
+    assert puntos == -5
+    assert evidencias[0]["codigo"] == "numero_direccion_distinto"
+
+    puntos, evidencias = fs._evidencia_direccion(calle_distinta, referencia)
+    assert puntos == 0
+    assert evidencias == []

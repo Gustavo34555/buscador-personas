@@ -31,7 +31,7 @@ backend/
   scripts/
     verificar_db.py      # Valida extensiones, índices y funciones de la DB
     prueba_busqueda.py   # Smoke test contra la DB real
-  tests/               # pytest (72 pruebas con DB mockeada)
+  tests/               # pytest (74 pruebas con DB mockeada)
 ```
 
 ## Requisitos y configuración
@@ -108,5 +108,5 @@ Para bases existentes aplica `migrations/001_auth_y_esquema.sql`, `migrations/00
 
 ```bash
 venv/bin/pip install -r requirements-dev.txt
-venv/bin/python -m pytest tests -q   # 72 pruebas
+venv/bin/python -m pytest tests -q   # 74 pruebas
 ```
