@@ -57,7 +57,7 @@ CANDIDATOS_TSQUERY = """
     SELECT p.dni
     FROM personas p
     WHERE p.search_vector @@ to_tsquery('simple', :tsq)
-    ORDER BY ts_rank_cd(p.search_vector, to_tsquery('simple', :tsq)) DESC, p.dni
+    ORDER BY p.dni
     LIMIT :cand_limit
 """
 

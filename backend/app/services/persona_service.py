@@ -45,8 +45,15 @@ def _sanitize_word(valor: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "", _unaccent(valor)).strip().lower()
 
 
-def _query_seguro(conn, sql: str, params: dict, *, timeout_ms: int = 2500) -> list[dict]:
-    """Consulta con timeout y savepoint para no abortar la transacción."""
+def _query_seguro(
+    conn, sql: str, params: dict, *, timeout_ms: int = 2500, strict: bool = True
+) -> list[dict]:
+    """Consulta con timeout y savepoint para no abortar la transacción.
+
+    Las consultas de generación de candidatos usan ``strict=False``: si una
+    variante expira, se descarta y se continúa con las demás. El re-ranking
+    final sí es estricto para no devolver un 200 vacío por un error de DB.
+    """
     try:
         conn.execute(text("SAVEPOINT busqueda_query"))
         conn.execute(text(f"SET LOCAL statement_timeout = '{int(timeout_ms)}'"))
@@ -62,7 +69,9 @@ def _query_seguro(conn, sql: str, params: dict, *, timeout_ms: int = 2500) -> li
             conn.execute(text("RELEASE SAVEPOINT busqueda_query"))
         except Exception:
             logger.debug("No se pudo liberar el savepoint de búsqueda", exc_info=True)
-        raise QueryExecutionError("No se pudo ejecutar la búsqueda") from exc
+        if strict:
+            raise QueryExecutionError("No se pudo ejecutar la búsqueda") from exc
+        return []
 
 
 def _agregar_dnis(destino: list[str], filas: list[dict], limite: int) -> None:
@@ -117,7 +126,7 @@ def buscar_personas(
         if any(c.isdigit() for c in q):
             _agregar_dnis(
                 dnis,
-                _query_seguro(conn, CANDIDATOS_DNI, params, timeout_ms=3000),
+                _query_seguro(conn, CANDIDATOS_DNI, params, timeout_ms=3000, strict=False),
                 limite_candidatos,
             )
 
@@ -132,6 +141,7 @@ def buscar_personas(
                     CANDIDATOS_TSQUERY,
                     {"tsq": palabras[0], "cand_limit": limite_candidatos},
                     timeout_ms=3000,
+                    strict=False,
                 ),
                 limite_candidatos,
             )
@@ -159,6 +169,7 @@ def buscar_personas(
                     CANDIDATOS_TSQUERY,
                     {"tsq": ts_and, "cand_limit": limite_candidatos},
                     timeout_ms=5000,
+                    strict=False,
                 ),
                 limite_candidatos,
             )

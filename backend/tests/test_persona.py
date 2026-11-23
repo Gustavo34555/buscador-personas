@@ -202,7 +202,7 @@ def test_buscar_reune_candidatos_aunque_limit_sea_menor(monkeypatch):
 
     llamadas: list[str] = []
 
-    def _fake_query(conn, sql, params, *, timeout_ms=2500):
+    def _fake_query(conn, sql, params, *, timeout_ms=2500, strict=True):
         llamadas.append(sql)
         if len(llamadas) == 1:
             return [{"dni": f"{i:08d}"} for i in range(25)]
@@ -240,10 +240,12 @@ def test_arbol_no_usa_cache_negativa_de_persona(client, monkeypatch):
 
 def test_rank_preciso_no_depende_de_columnas_generadas():
     """El SQL debe funcionar aunque la base no tenga columnas generadas nuevas."""
-    from app.sql.queries import RANK_PRECISO
+    from app.sql.queries import CANDIDATOS_TSQUERY, RANK_PRECISO
 
     assert "p.nombre_busqueda" not in RANK_PRECISO
     assert "p.nombre_completo" not in RANK_PRECISO
     assert "AS nc_busq" in RANK_PRECISO
     assert "AS edad_anios" in RANK_PRECISO
     assert "det.edad_anios" in RANK_PRECISO
+    # Rankear todos los matches antes del LIMIT hace que el OR expire.
+    assert "ts_rank_cd" not in CANDIDATOS_TSQUERY
