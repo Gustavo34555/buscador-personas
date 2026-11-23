@@ -249,3 +249,19 @@ def test_rank_preciso_no_depende_de_columnas_generadas():
     assert "det.edad_anios" in RANK_PRECISO
     # Rankear todos los matches antes del LIMIT hace que el OR expire.
     assert "ts_rank_cd" not in CANDIDATOS_TSQUERY
+
+
+def test_query_familiar_tolerante_no_rompe_arbol():
+    """Un timeout en una variante opcional no debe tumbar todo el árbol."""
+    import pytest
+
+    from app.errors import QueryExecutionError
+    from app.services import familia_service as fs
+
+    class BadConn:
+        def execute(self, *args, **kwargs):
+            raise RuntimeError("statement timeout")
+
+    with pytest.raises(QueryExecutionError):
+        fs._query(BadConn(), "SELECT 1", {}, strict=True)
+    assert fs._query(BadConn(), "SELECT 1", {}, strict=False) == []

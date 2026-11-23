@@ -122,7 +122,7 @@ npm ci
 npm test
 ```
 
-La suite backend contiene 69 pruebas. Los smoke tests de interfaz cubren escritorio y móvil con jsdom, y verifican también que las versiones de `index.html` y del Service Worker sean coherentes.
+La suite backend contiene 70 pruebas. Los smoke tests de interfaz cubren escritorio y móvil con jsdom, y verifican también que las versiones de `index.html` y del Service Worker sean coherentes.
 
 ## Integración continua
 

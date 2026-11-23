@@ -466,8 +466,14 @@ def _query(
     params: dict[str, Any],
     *,
     timeout_ms: int = 7000,
+    strict: bool = True,
 ) -> list[dict]:
-    """Ejecuta una consulta con savepoint y timeout, sin romper la sesión."""
+    """Ejecuta una consulta con savepoint y timeout, sin romper la sesión.
+
+    Las consultas de candidatos son tolerantes: si una variante expira se
+    descarta y el árbol se construye con el resto. La consulta de la
+    persona titular sí es estricta.
+    """
     try:
         conn.execute(text("SAVEPOINT familia_query"))
         conn.execute(text(f"SET LOCAL statement_timeout = '{int(timeout_ms)}'"))
@@ -481,7 +487,9 @@ def _query(
             conn.execute(text("RELEASE SAVEPOINT familia_query"))
         except Exception:
             logger.debug("No se pudo liberar el savepoint familiar", exc_info=True)
-        raise QueryExecutionError("No se pudo ejecutar la consulta familiar") from exc
+        if strict:
+            raise QueryExecutionError("No se pudo ejecutar la consulta familiar") from exc
+        return []
 
 
 def _rango_fechas_progenitor(hijo: dict, tipo: str) -> tuple[str, str]:
@@ -559,7 +567,8 @@ def _buscar_candidatos_progenitor(conn, hijo: dict, tipo: str) -> list[dict]:
                 "fecha_max": fecha_max,
                 "limite": limite,
             },
-            timeout_ms=7000 if indice == 0 else 5000,
+            timeout_ms=5000 if indice == 0 else 3500,
+            strict=False,
         )
         for fila in filas:
             dni = str(fila.get("dni") or "")
@@ -836,7 +845,8 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                     "limite": limite,
                     **params_rango,
                 },
-                timeout_ms=7000,
+                timeout_ms=4000,
+                strict=False,
             )
         )
 
@@ -853,7 +863,6 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                   AND p.padre IS NOT NULL AND btrim(p.padre) <> ''
                   AND (
                       immutable_unaccent(lower(p.padre)) LIKE :nombre || '%'
-                      OR immutable_unaccent(lower(p.padre)) LIKE '% ' || :nombre || '%'
                   )
                   {rango}
                 LIMIT :limite
@@ -870,7 +879,8 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                         "limite": limite,
                         **params_rango,
                     },
-                    timeout_ms=7000,
+                    timeout_ms=4000,
+                    strict=False,
                 )
             )
 
@@ -887,7 +897,6 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                   AND p.madre IS NOT NULL AND btrim(p.madre) <> ''
                   AND (
                       immutable_unaccent(lower(p.madre)) LIKE :nombre || '%'
-                      OR immutable_unaccent(lower(p.madre)) LIKE '% ' || :nombre || '%'
                   )
                   {rango}
                 LIMIT :limite
@@ -904,7 +913,8 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                         "limite": limite,
                         **params_rango,
                     },
-                    timeout_ms=7000,
+                    timeout_ms=4000,
+                    strict=False,
                 )
             )
 
@@ -925,7 +935,8 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                     conn,
                     sql,
                     {"tsq": ancla, "dni": dni, "limite": limite, **params_rango},
-                    timeout_ms=7000,
+                    timeout_ms=4000,
+                    strict=False,
                 )
             )
 
@@ -1129,7 +1140,6 @@ def _buscar_candidatos_hijos(conn, persona: dict, limite: int) -> list[dict]:
               AND p.{campo} IS NOT NULL AND btrim(p.{campo}) <> ''
               AND (
                   immutable_unaccent(lower(p.{campo})) LIKE :nombre || '%'
-                  OR immutable_unaccent(lower(p.{campo})) LIKE '% ' || :nombre || '%'
               )
               {rango}
             LIMIT :limite
@@ -1145,7 +1155,8 @@ def _buscar_candidatos_hijos(conn, persona: dict, limite: int) -> list[dict]:
                 "limite": limite,
                 **params_rango,
             },
-            timeout_ms=8000,
+            timeout_ms=4000,
+            strict=False,
         )
         for fila in filas:
             clave = str(fila.get("dni") or "")
