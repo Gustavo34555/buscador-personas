@@ -191,7 +191,8 @@ def test_gzip_respuestas_grandes(client):
     res = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
     assert res.status_code == 200
     assert res.headers.get("content-encoding") == "gzip"
-    assert res.headers.get("vary") == "Accept-Encoding"
+    vary = [v.strip().lower() for v in res.headers.get("vary", "").split(",")]
+    assert "accept-encoding" in vary
 
 
 def test_buscar_reune_candidatos_aunque_limit_sea_menor(monkeypatch):
