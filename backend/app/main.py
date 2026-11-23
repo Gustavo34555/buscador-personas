@@ -81,8 +81,8 @@ async def security_and_tracing_middleware(request: Request, call_next) -> Respon
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; img-src 'self' data:; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com data:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self' data:; "
         "script-src 'self'; worker-src 'self'; manifest-src 'self'; "
         "connect-src 'self'; object-src 'none'; frame-ancestors 'none'; "
         "base-uri 'self'; form-action 'self'"
