@@ -42,7 +42,125 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/tests/package-lock.json
+
       - name: Check JavaScript syntax
         run: |
           node --check frontend/app.js
           node --check frontend/sw.js
+          node --check frontend/theme.js
+          node --check frontend/tests/check-versions.js
+
+      - name: Install smoke test dependencies
+        working-directory: ./frontend/tests
+        run: npm ci
+
+      - name: Run UI smoke tests (jsdom, escritorio y móvil)
+        working-directory: ./frontend/tests
+        run: npm test
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: buscador_personas
+          POSTGRES_USER: buscador
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U buscador -d buscador_personas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Mismo prefijo que usa la app; psql necesita la variante sin +psycopg2.
+      DATABASE_URL: postgresql+psycopg2://buscador:test_password@localhost:5432/buscador_personas
+      PGPASSWORD: test_password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply schema and migrations
+        run: |
+          set -euo pipefail
+          DATABASE_URL_PSQL="${DATABASE_URL/postgresql+psycopg2/postgresql}"
+          psql "$DATABASE_URL_PSQL" -v ON_ERROR_STOP=1 -f docker/initdb.sql
+          psql "$DATABASE_URL_PSQL" -v ON_ERROR_STOP=1 -f backend/migrations/001_auth_y_esquema.sql
+          psql "$DATABASE_URL_PSQL" -v ON_ERROR_STOP=1 -f backend/migrations/002_indices_concurrentes.sql
+          psql "$DATABASE_URL_PSQL" -v ON_ERROR_STOP=1 -f backend/migrations/003_search_schema.sql
+
+      - name: Verify columns and indexes
+        run: |
+          set -euo pipefail
+          DATABASE_URL_PSQL="${DATABASE_URL/postgresql+psycopg2/postgresql}"
+          psql "$DATABASE_URL_PSQL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TEMP TABLE expected_columns (table_name text, column_name text);
+          INSERT INTO expected_columns VALUES
+            ('personas', 'dni'),
+            ('personas', 'search_vector'),
+            ('personas', 'nombre_busqueda'),
+            ('personas', 'padre'),
+            ('usuarios', 'token_version'),
+            ('auditoria_consultas', 'fecha');
+
+          DO $$
+          DECLARE missing text;
+          BEGIN
+            SELECT string_agg(format('%s.%s', table_name, column_name), ', '
+                              ORDER BY table_name, column_name)
+              INTO missing
+              FROM expected_columns e
+             WHERE NOT EXISTS (
+               SELECT 1 FROM information_schema.columns c
+                WHERE c.table_schema = 'public'
+                  AND c.table_name = e.table_name
+                  AND c.column_name = e.column_name
+             );
+            IF missing IS NOT NULL THEN
+              RAISE EXCEPTION 'Faltan columnas: %', missing;
+            END IF;
+          END $$;
+
+          CREATE TEMP TABLE expected_indexes (index_name text);
+          INSERT INTO expected_indexes VALUES
+            ('idx_personas_search_vector'),
+            ('idx_personas_nombre_trgm'),
+            ('idx_personas_nombre_busqueda_trgm'),
+            ('idx_personas_dni_like'),
+            ('idx_personas_ap_pat_soundex'),
+            ('idx_personas_ap_pat_norm'),
+            ('idx_personas_ap_mat_norm'),
+            ('idx_personas_nombres_norm'),
+            ('idx_personas_padre_norm'),
+            ('idx_personas_madre_norm'),
+            ('idx_personas_fecha_nac'),
+            ('idx_auditoria_fecha'),
+            ('idx_usuarios_username');
+
+          DO $$
+          DECLARE missing text;
+          BEGIN
+            SELECT string_agg(index_name, ', ' ORDER BY index_name) INTO missing
+              FROM expected_indexes e
+             WHERE NOT EXISTS (
+               SELECT 1 FROM pg_indexes i
+                WHERE i.schemaname = 'public' AND i.indexname = e.index_name
+             );
+            IF missing IS NOT NULL THEN
+              RAISE EXCEPTION 'Faltan índices: %', missing;
+            END IF;
+          END $$;
+
+          SELECT 'columnas e índices verificados' AS resultado;
+          SQL

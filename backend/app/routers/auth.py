@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import JWT_EXPIRATION_HOURS
 from app.dependencies import verify_login_rate_limit
 from app.schemas import LoginRequest, LoginResponse, MeResponse
-from app.security import clear_auth_cookie, require_jwt_auth, set_auth_cookie
+from app.security import clear_auth_cookie, require_jwt_auth, set_auth_cookie, verify_csrf_header
 from app.services import auth_service
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def login(
 
 
 @router.post("/logout", status_code=204)
-def logout(response: Response):
+def logout(response: Response, _csrf: None = Depends(verify_csrf_header)):
     """Cierra la sesión eliminando la cookie HttpOnly."""
     clear_auth_cookie(response)
     response.status_code = 204

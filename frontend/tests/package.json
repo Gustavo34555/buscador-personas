@@ -1,0 +1,11 @@
+{
+  "name": "buscador-personas-smoke",
+  "private": true,
+  "description": "Smoke tests de interfaz con jsdom",
+  "scripts": {
+    "test": "node check-versions.js && node smoke.js && node smoke-mobile.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

@@ -45,3 +45,6 @@ htmlcov/
 *~
 .DS_Store
 Thumbs.db
+
+# Node (smoke tests)
+node_modules/

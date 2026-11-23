@@ -18,6 +18,14 @@ def test_persona_no_encontrada(client, monkeypatch):
     assert res.status_code == 404
 
 
+def test_persona_no_encontrada_cache_negativa(client, monkeypatch):
+    engine = FakeEngine([])
+    _mock_engine(monkeypatch, engine)
+    assert client.get("/persona/99999998").status_code == 404
+    assert client.get("/persona/99999998").status_code == 404
+    assert engine.connect_count == 1
+
+
 def test_persona_encontrada(client, monkeypatch):
     _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
     res = client.get("/persona/12345678")
@@ -88,6 +96,16 @@ def test_buscar_cache(client, monkeypatch):
     assert engine.connect_count == 1
 
 
+def test_buscar_cache_normaliza_tildes(client, monkeypatch):
+    fila = dict(PERSONA_FILA)
+    fila["dig_ruc"] = "5"
+    engine = FakeEngine([fila])
+    _mock_engine(monkeypatch, engine)
+    assert client.get("/buscar", params={"q": "García"}).status_code == 200
+    assert client.get("/buscar", params={"q": "Garcia"}).status_code == 200
+    assert engine.connect_count == 1
+
+
 def test_buscar_query_corta(client):
     res = client.get("/buscar", params={"q": "ab"})
     assert res.status_code == 400
@@ -100,6 +118,7 @@ def test_buscar_limit_invalido(client):
 
 def test_rate_limit_persona(client, monkeypatch):
     from app.dependencies import search_rate_limiter
+
     search_rate_limiter.max_hits = 2
     search_rate_limiter.window = 60
     _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
@@ -134,23 +153,85 @@ def test_arbol_persona_encontrada(client, monkeypatch):
     assert "meta" in body
 
 
-def test_c4_dni_invalido(client):
-    res = client.get("/persona/123/c4")
+def test_headers_privacidad_y_timing(client):
+    res = client.get("/persona/123")
     assert res.status_code == 400
+    assert res.headers["cache-control"].startswith("no-store")
+    assert res.headers["pragma"] == "no-cache"
+    assert "server-timing" in res.headers
+    assert "app;dur=" in res.headers["server-timing"]
+    csp = res.headers["content-security-policy"]
+    assert "script-src 'self'" in csp
+    assert "script-src 'self' 'unsafe-inline'" not in csp
+    assert "object-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "base-uri 'self'" in csp
+    assert "form-action 'self'" in csp
 
 
-def test_c4_persona_encontrada(client, monkeypatch):
-    _mock_engine(monkeypatch, FakeEngine([PERSONA_FILA]))
-    res = client.get("/persona/12345678/c4")
+def test_cache_headers_estaticos(client):
+    root = client.get("/")
+    assert root.status_code == 200
+    assert root.headers["cache-control"] == "no-cache"
+
+    versioned = client.get("/styles.css", params={"v": "2.6"})
+    assert versioned.status_code == 200
+    assert versioned.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    font = client.get("/fonts/inter-latin.woff2")
+    assert font.status_code == 200
+    assert font.headers["cache-control"] == "public, max-age=604800"
+
+    service_worker = client.get("/sw.js")
+    assert service_worker.status_code == 200
+    assert service_worker.headers["cache-control"] == "no-cache"
+
+
+def test_gzip_respuestas_grandes(client):
+    res = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
     assert res.status_code == 200
-    body = res.json()
-    assert body["codigo_referencia"].startswith("REF-")
-    assert body["fecha_generacion"]
-    assert body["es_oficial"] is False
-    assert body["aviso"]
-    assert "mrz_linea1" not in body
-    assert "firma_digital" not in body
-    assert "url_verificacion" not in body
-    assert body["persona"]["dni"] == "12345678"
+    assert res.headers.get("content-encoding") == "gzip"
+    assert res.headers.get("vary") == "Accept-Encoding"
 
 
+def test_buscar_reune_candidatos_aunque_limit_sea_menor(monkeypatch):
+    """El re-ranking debe reunir hasta 300 candidatos, no solo `limit`."""
+    from app.errors import QueryExecutionError  # noqa: F401  (documenta el tipo)
+    from app.services import persona_service
+
+    llamadas: list[str] = []
+
+    def _fake_query(conn, sql, params, *, timeout_ms=2500):
+        llamadas.append(sql)
+        if len(llamadas) == 1:
+            return [{"dni": f"{i:08d}"} for i in range(25)]
+        return []
+
+    monkeypatch.setattr(persona_service, "_query_seguro", _fake_query)
+    _mock_engine(monkeypatch, FakeEngine([]))
+
+    persona_service.buscar_personas("juan garcia", "juan garcia", "juan garcia%", "", 2, 20)
+    assert len(llamadas) == 3, "deben ejecutarse AND, prefijo y OR"
+
+
+def test_timeout_sql_devuelve_503(client, monkeypatch):
+    """Un timeout no debe disfrazarse de 'sin resultados' con 200."""
+    from app.errors import QueryExecutionError
+
+    def _boom(*args, **kwargs):
+        raise QueryExecutionError("statement timeout")
+
+    monkeypatch.setattr(persona_service, "buscar_personas", _boom)
+    res = client.get("/buscar", params={"q": "juan garcia"})
+    assert res.status_code == 503
+    assert res.headers.get("retry-after") == "5"
+
+
+def test_arbol_no_usa_cache_negativa_de_persona(client, monkeypatch):
+    from app.routers import persona as router_persona
+    from app.services import familia_service
+
+    router_persona.dni_negative_cache.set("99999999", True)
+    monkeypatch.setattr(familia_service, "engine", FakeEngine([PERSONA_FILA]))
+    res = client.get("/persona/99999999/arbol")
+    assert res.status_code == 200

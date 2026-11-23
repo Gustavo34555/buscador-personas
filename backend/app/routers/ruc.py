@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.cache import build_cache
@@ -37,10 +37,10 @@ def _es_usuario_real(user_payload: dict) -> bool:
     return isinstance(sub, int) and sub > 0
 
 
-def _consumir_consulta(user_payload: dict) -> bool:
+def _consumir_consulta(user_payload: dict) -> tuple[bool, int | None]:
     """Descuenta una consulta para usuarios reales; API keys no tienen cuota."""
     if user_payload.get("rol") == "admin" or not _es_usuario_real(user_payload):
-        return False
+        return False, None
 
     restantes = auth_service.consumir_consulta(user_payload["sub"])
     if restantes is None:
@@ -48,7 +48,12 @@ def _consumir_consulta(user_payload: dict) -> bool:
             status_code=403,
             detail="Sin consultas disponibles. Contacta al administrador para obtener más.",
         )
-    return True
+    return True, restantes
+
+
+def _set_quota_header(response: Response, restantes: int | None) -> None:
+    if restantes is not None:
+        response.headers["X-Consultas-Restantes"] = str(restantes)
 
 
 def _reembolsar_consulta(user_payload: dict, consumida: bool) -> None:
@@ -60,6 +65,7 @@ def _reembolsar_consulta(user_payload: dict, consumida: bool) -> None:
 async def consultar_ruc_por_dni(
     dni: str,
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     ruc_service: RucService = Depends(get_ruc_service),
     _rate_limit: None = Depends(verify_ruc_rate_limit),
@@ -69,11 +75,12 @@ async def consultar_ruc_por_dni(
         raise HTTPException(status_code=400, detail="DNI debe tener 8 dígitos")
 
     _check_api_key(ruc_service)
-    consumida = _consumir_consulta(user_payload)
+    consumida, restantes = _consumir_consulta(user_payload)
 
     cache_key = f"ruc_{dni}"
     cached = ruc_cache.get(cache_key)
     if cached is not None:
+        _set_quota_header(response, restantes)
         return cached
 
     try:
@@ -86,6 +93,7 @@ async def consultar_ruc_por_dni(
     if not fila or not fila["dig_ruc"]:
         result = {"tiene_ruc": False, "mensaje": "Esta persona no tiene RUC registrado"}
         ruc_cache.set(cache_key, result)
+        _set_quota_header(response, restantes)
         return result
 
     ruc = "10" + str(fila["dni"]) + str(fila["dig_ruc"])
@@ -96,6 +104,7 @@ async def consultar_ruc_por_dni(
         if exc.status_code == 404:
             result = {"tiene_ruc": False, "mensaje": "Esta persona no tiene RUC registrado"}
             ruc_cache.set(cache_key, result)
+            _set_quota_header(response, restantes)
             return result
         _reembolsar_consulta(user_payload, consumida)
         raise
@@ -117,6 +126,7 @@ async def consultar_ruc_por_dni(
         "ubigeo": data.get("ubigeo", ""),
     }
     ruc_cache.set(cache_key, result)
+    _set_quota_header(response, restantes)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "ruc", dni)
     return result
 
@@ -125,6 +135,7 @@ async def consultar_ruc_por_dni(
 async def consultar_ruc_detalle(
     ruc: str,
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     ruc_service: RucService = Depends(get_ruc_service),
     _rate_limit: None = Depends(verify_ruc_rate_limit),
@@ -134,11 +145,12 @@ async def consultar_ruc_detalle(
         raise HTTPException(status_code=400, detail="RUC debe tener 11 dígitos")
 
     _check_api_key(ruc_service)
-    consumida = _consumir_consulta(user_payload)
+    consumida, restantes = _consumir_consulta(user_payload)
 
     cache_key = f"rucinfo_{ruc}"
     cached = ruc_cache.get(cache_key)
     if cached is not None:
+        _set_quota_header(response, restantes)
         return cached
 
     try:
@@ -159,5 +171,6 @@ async def consultar_ruc_detalle(
         "ubigeo": data.get("ubigeo", ""),
     }
     ruc_cache.set(cache_key, result)
+    _set_quota_header(response, restantes)
     background_tasks.add_task(auditoria_service.registrar, get_client_host(request), "ruc_info", ruc)
     return result

@@ -51,7 +51,10 @@ def require_jwt_auth(request: Request) -> dict:
             continue
 
         user_id = payload.get("sub")
-        token_version = int(payload.get("ver") or 0)
+        try:
+            token_version = int(payload.get("ver") or 0)
+        except (TypeError, ValueError):
+            continue
         if not isinstance(user_id, int):
             continue
 
@@ -129,3 +132,16 @@ def clear_auth_cookie(response: Response) -> None:
         secure=COOKIE_SECURE,
         samesite=COOKIE_SAMESITE,
     )
+
+
+_CUSTOM_HEADER = "X-Requested-With"
+
+
+def verify_csrf_header(request: Request) -> None:
+    """Exige una cabecera custom en mutaciones cuando SameSite=none.
+
+    Una petición cross-site con cabecera personalizada dispara preflight;
+    con CORS restringido al mismo origen, el navegador la bloquea.
+    """
+    if COOKIE_SAMESITE == "none" and request.headers.get(_CUSTOM_HEADER) != "XMLHttpRequest":
+        raise HTTPException(status_code=403, detail="Cabecera de seguridad requerida")

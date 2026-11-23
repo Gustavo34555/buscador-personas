@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 from collections import OrderedDict
 from typing import Any, Callable
 
@@ -107,13 +108,37 @@ class RedisTTLCache:
             self._client.delete(key)
 
     def get_or_set(self, key: str, factory: Callable[[], Any]) -> Any:
+        """Anti-stampede distribuido con lock SET NX.
+
+        Solo un worker calcula el valor; los demás esperan unos milisegundos
+        y reutilizan la respuesta. Si el productor falla, cualquier esperador
+        puede calcularlo para no dejar la petición colgada.
+        """
         cached = self.get(key)
         if cached is not None:
             return cached
-        value = factory()
-        if value is not None:
-            self.set(key, value)
-        return value
+
+        lock_key = f"{self._key(key)}:lock"
+        token = uuid.uuid4().hex
+        acquired = self._client.set(lock_key, token, nx=True, ex=30)
+        if not acquired:
+            for _ in range(20):
+                time.sleep(0.05)
+                cached = self.get(key)
+                if cached is not None:
+                    return cached
+
+        try:
+            value = factory()
+            if value is not None:
+                self.set(key, value)
+            return value
+        finally:
+            try:
+                if self._client.get(lock_key) == token:
+                    self._client.delete(lock_key)
+            except Exception:
+                logger.debug("No se pudo liberar el lock de caché", exc_info=True)
 
     def __len__(self) -> int:
         return sum(1 for _ in self._client.scan_iter(match=f"{self.prefix}*"))

@@ -2,21 +2,19 @@
 name = "buscador-personas"
 version = "0.1.0"
 description = "API para búsqueda de personas en padrón nacional y consultas RUC."
-requires-python = ">=3.10"
+requires-python = ">=3.12"
+# Mismas dependencias de runtime que requirements.txt (pytest/ruff están en
+# requirements-dev.txt). Pydantic llega como dependencia de FastAPI.
 dependencies = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.23.0",
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.7",
-    "httpx>=0.24.1",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
-    "beautifulsoup4>=4.12.2",
+    "httpx>=0.24.1",
     "bcrypt>=4.1.0",
     "PyJWT>=2.8.0",
     "redis>=5.0.0",
-    "pytest>=7.0.0",
 ]
 
 [tool.ruff]

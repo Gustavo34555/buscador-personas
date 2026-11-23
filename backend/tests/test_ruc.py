@@ -82,6 +82,7 @@ def test_ruc_api_401(client, monkeypatch):
 
 def test_ruc_rate_limit(client, monkeypatch):
     from app.dependencies import ruc_rate_limiter
+
     ruc_rate_limiter.max_hits = 2
     ruc_rate_limiter.window = 60
     _setup(client, monkeypatch, service=FakeRucService(payload=API_DATA))

@@ -11,26 +11,17 @@
   <meta property="og:type" content="website">
   <title>Buscador de Personas</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=2.3">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
-  <script>
-    (function() {
-      const saved = localStorage.getItem('theme');
-      if (saved === 'light' || (!saved && window.matchMedia('(prefers-color-scheme: light)').matches)) {
-        document.documentElement.setAttribute('data-theme', 'light');
-      } else {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      }
-    })();
-  </script>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/material-symbols-outlined.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css?v=3.2">
+  <script src="theme.js"></script>
 </head>
-<body class="grid-bg">
+<body class="grid-bg login-visible">
+  <a class="skip-link" href="#search-input">Saltar a la búsqueda</a>
 
   <!-- Login Overlay -->
-  <div id="login-overlay" class="login-overlay">
+  <div id="login-overlay" class="login-overlay" role="dialog" aria-modal="true" aria-label="Inicio de sesión">
     <div class="login-ambient-blob login-ambient-blob--1"></div>
     <div class="login-ambient-blob login-ambient-blob--2"></div>
     <div class="login-card">
@@ -69,15 +60,15 @@
           <label for="login-user">Usuario</label>
           <div class="login-input-wrap">
             <span class="material-symbols-outlined login-input-icon">person</span>
-            <input id="login-user" type="text" placeholder="Ingresa tu usuario" required autofocus>
+            <input id="login-user" type="text" placeholder="Ingresa tu usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
           </div>
         </div>
         <div class="login-field">
           <label for="login-pass">Contraseña</label>
           <div class="login-input-wrap">
             <span class="material-symbols-outlined login-input-icon">lock</span>
-            <input id="login-pass" type="password" placeholder="Ingresa tu contraseña" required>
-            <button type="button" id="btn-toggle-password" class="btn-toggle-pass" title="Mostrar u ocultar contraseña" tabindex="-1">
+            <input id="login-pass" type="password" placeholder="Ingresa tu contraseña" autocomplete="current-password" required>
+            <button type="button" id="btn-toggle-password" class="btn-toggle-pass" title="Mostrar u ocultar contraseña" aria-label="Mostrar contraseña" aria-pressed="false">
               <span class="material-symbols-outlined" id="eye-icon">visibility</span>
             </button>
           </div>
@@ -86,7 +77,7 @@
           <span>Iniciar Sesión</span>
           <span class="material-symbols-outlined btn-login__icon">arrow_forward</span>
         </button>
-        <div id="login-error" class="login-error"></div>
+        <div id="login-error" class="login-error" role="alert" aria-live="assertive"></div>
       </form>
       <div class="login-card__footer">
         <span class="material-symbols-outlined">verified_user</span>
@@ -96,7 +87,7 @@
   </div>
 
   <!-- Admin Panel Modal -->
-  <div id="admin-overlay" class="admin-overlay">
+  <div id="admin-overlay" class="admin-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Panel de Administración">
     <div class="admin-backdrop" id="admin-backdrop"></div>
     <div class="admin-panel">
       <div class="admin-panel__header">
@@ -104,7 +95,7 @@
           <span class="material-symbols-outlined">admin_panel_settings</span>
           <span>Panel de Administración</span>
         </div>
-        <button id="btn-close-admin" class="admin-panel__close" title="Cerrar">
+        <button id="btn-close-admin" class="admin-panel__close" title="Cerrar" aria-label="Cerrar panel de administración">
           <span class="material-symbols-outlined">close</span>
         </button>
       </div>
@@ -114,15 +105,15 @@
             <span class="material-symbols-outlined">person_add</span>
             <span>Crear Nuevo Usuario</span>
           </div>
-          <input id="admin-new-user" type="text" placeholder="Usuario" required>
-          <input id="admin-new-pass" type="password" placeholder="Contraseña" required>
-          <input id="admin-new-consultas" type="number" placeholder="Consultas" value="100" min="0">
+          <input id="admin-new-user" type="text" placeholder="Usuario" aria-label="Nombre de usuario" required>
+          <input id="admin-new-pass" type="password" placeholder="Contraseña" aria-label="Contraseña del nuevo usuario" required>
+          <input id="admin-new-consultas" type="number" placeholder="Consultas" value="100" min="0" aria-label="Consultas disponibles">
           <button id="btn-crear-usuario" class="btn-crear-usuario">
             <span class="material-symbols-outlined">add</span>
             Crear
           </button>
         </div>
-        <div id="admin-msg" class="admin-msg"></div>
+        <div id="admin-msg" class="admin-msg" role="status" aria-live="polite"></div>
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead>
@@ -151,29 +142,33 @@
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <!-- Quick Search Modal (Ctrl+K) -->
-  <div id="quick-search-modal" class="qs-overlay" role="dialog" aria-label="Búsqueda rápida">
+  <div id="quick-search-modal" class="qs-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Búsqueda rápida">
     <div class="qs-backdrop" data-close-modal></div>
     <div class="qs-panel" id="qs-panel">
       <div class="qs-header">
         <span class="material-symbols-outlined">search</span>
-        <input id="quick-search-input" type="text" placeholder="DNI o nombre completo..." autocomplete="off" aria-label="Búsqueda rápida">
+        <input id="quick-search-input" type="text" placeholder="DNI o nombre completo..." autocomplete="off" role="combobox" aria-label="Búsqueda rápida" aria-expanded="false" aria-controls="quick-search-results" aria-autocomplete="list" aria-describedby="qs-status">
         <kbd>ESC</kbd>
       </div>
-      <div id="quick-search-results" class="qs-results">
+      <div id="quick-search-results" class="qs-results" role="listbox" aria-label="Resultados de búsqueda rápida" aria-busy="false">
         <p class="qs-empty">Escribe al menos 3 caracteres para buscar...</p>
       </div>
+      <p id="qs-status" class="sr-only" role="status" aria-live="polite"></p>
     </div>
   </div>
 
   <!-- Mobile Detail Sheet -->
   <div id="mobile-sheet-overlay" class="sheet-overlay" data-close-sheet></div>
-  <div id="mobile-sheet" class="sheet">
+  <div id="mobile-sheet" class="sheet" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Detalle de persona">
     <div class="sheet__handle"></div>
+    <button type="button" class="sheet__close" data-close-sheet aria-label="Cerrar detalle">
+      <span class="material-symbols-outlined" aria-hidden="true">close</span>
+    </button>
     <div id="mobile-sheet-content"></div>
   </div>
 
   <!-- Family Tree Interactive Modal -->
-  <div id="tree-modal" class="tree-overlay" role="dialog" aria-label="Árbol Genealógico Interactivo">
+  <div id="tree-modal" class="tree-overlay" role="dialog" aria-modal="true" aria-hidden="true" inert aria-label="Árbol Genealógico Interactivo">
     <div class="tree-backdrop" data-close-tree></div>
     <div class="tree-panel">
       <div class="tree-panel__header">
@@ -190,6 +185,14 @@
 
         <!-- Interactive Graph Controls -->
         <div class="tree-panel__actions">
+          <div class="view-switch tree-view-switch" role="group" aria-label="Vista del árbol">
+            <button id="btn-tree-view-graph" class="view-switch__btn" title="Vista de grafo" aria-label="Vista de grafo" aria-pressed="false">
+              <span class="material-symbols-outlined">account_tree</span>
+            </button>
+            <button id="btn-tree-view-list" class="view-switch__btn" title="Vista de lista por pestañas" aria-label="Vista de lista por pestañas" aria-pressed="false">
+              <span class="material-symbols-outlined">view_list</span>
+            </button>
+          </div>
           <div class="tree-zoom-controls">
             <button id="btn-tree-zoom-out" class="btn-tree-ctrl" title="Alejar (Zoom -)">
               <span class="material-symbols-outlined">remove</span>
@@ -225,37 +228,7 @@
     </div>
   </div>
 
-  <!-- Ficha de referencia (no oficial) Modal -->
-  <div id="c4-modal" class="c4-overlay" role="dialog" aria-label="Ficha de referencia — datos del padrón">
-    <div class="c4-backdrop" data-close-c4></div>
-    <div class="c4-panel">
-      <div class="c4-panel__header">
-        <div class="c4-panel__title">
-          <span class="material-symbols-outlined" style="color:#38bdf8">description</span>
-          <span>Ficha de referencia — datos del padrón (no oficial)</span>
-        </div>
-        <div class="c4-panel__actions">
-          <button id="btn-print-c4" class="btn-print-c4" title="Imprimir ficha o guardar en PDF">
-            <span class="material-symbols-outlined">print</span>
-            <span class="btn-print-c4__label">Imprimir / PDF</span>
-          </button>
-          <button id="btn-close-c4" class="c4-panel__close" title="Cerrar">
-            <span class="material-symbols-outlined">close</span>
-          </button>
-        </div>
-      </div>
-      <div class="c4-panel__body">
-        <div id="c4-container" class="c4-container">
-          <div class="c4-loading">
-            <div class="qs-spinner"></div>
-            <p>Generando ficha de referencia (no oficial)...</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <header class="header">
+  <header class="header" inert>
     <div class="header__inner">
       <div class="header__brand">
         <div class="logo-float">
@@ -284,7 +257,7 @@
         </div>
       </div>
       <div class="header__actions">
-        <button id="btn-quick-search" class="btn-quick-search" title="Búsqueda rápida (Ctrl+K)">
+        <button id="btn-quick-search" class="btn-quick-search" title="Búsqueda rápida (Ctrl+K)" aria-keyshortcuts="Control+K">
           <span class="material-symbols-outlined">bolt</span>
           <span class="btn-quick-search__label">Búsqueda rápida</span>
           <kbd>Ctrl+K</kbd>
@@ -294,11 +267,11 @@
             <span class="material-symbols-outlined">database</span>
             <span class="consultas-badge__count" id="consultas-count">—</span>
           </div>
-          <button id="btn-open-admin" class="btn-admin hidden" title="Panel de Administración">
+          <button id="btn-open-admin" class="btn-admin hidden" title="Panel de Administración" aria-haspopup="dialog" aria-controls="admin-overlay" aria-expanded="false">
             <span class="material-symbols-outlined">admin_panel_settings</span>
             <span>Admin</span>
           </button>
-          <button id="btn-logout" class="btn-logout" title="Cerrar sesión">
+          <button id="btn-logout" class="btn-logout" title="Cerrar sesión" aria-label="Cerrar sesión">
             <span class="material-symbols-outlined">logout</span>
           </button>
         </div>
@@ -315,7 +288,7 @@
   </header>
 
   <!-- Main Content -->
-  <main class="main">
+  <main class="main" inert>
 
     <!-- Hero + Search -->
     <section class="hero" aria-label="Búsqueda">
@@ -334,7 +307,7 @@
         <div class="search-box">
           <span class="material-symbols-outlined search-box__icon">search</span>
           <div class="search-box__input-wrap">
-            <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." inputmode="numeric" pattern="[0-9]*" enterkeyhint="search" autocomplete="off" class="search-box__input" aria-label="Buscar persona">
+            <input id="search-input" type="text" placeholder="Escribe un DNI (8 dígitos)..." inputmode="numeric" pattern="[0-9]*" enterkeyhint="search" autocomplete="off" class="search-box__input" aria-label="Buscar persona" aria-keyshortcuts="/">
             <span id="dni-counter" class="dni-counter hidden" title="Dígitos de DNI">0/8</span>
             <button id="btn-clear-search" class="btn-clear-input" title="Borrar búsqueda" aria-label="Borrar texto">
               <span class="material-symbols-outlined">close</span>
@@ -343,8 +316,8 @@
           <div class="search-box__actions" id="search-modes">
             <div class="mode-selector">
               <div class="mode-glider" id="mode-glider"></div>
-              <button id="mode-dni" class="mode-btn mode-btn--active" data-mode="dni">DNI</button>
-              <button id="mode-nombre" class="mode-btn" data-mode="nombre">Nombre</button>
+              <button id="mode-dni" class="mode-btn mode-btn--active" data-mode="dni" aria-pressed="true">DNI</button>
+              <button id="mode-nombre" class="mode-btn" data-mode="nombre" aria-pressed="false">Nombre</button>
             </div>
             <button id="btn-search" class="btn-search" title="Buscar" aria-label="Buscar">
               <span class="material-symbols-outlined">arrow_forward</span>
@@ -385,7 +358,19 @@
           <h2>Resultados Encontrados</h2>
           <span id="badge-count" class="badge-count">0</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="results-header__actions">
+          <div class="view-switch" role="group" aria-label="Vista de resultados">
+            <button id="btn-view-list" class="view-switch__btn view-switch__btn--active" title="Vista de tarjetas" aria-label="Vista de tarjetas" aria-pressed="true">
+              <span class="material-symbols-outlined">view_agenda</span>
+            </button>
+            <button id="btn-view-table" class="view-switch__btn" title="Vista de tabla" aria-label="Vista de tabla" aria-pressed="false">
+              <span class="material-symbols-outlined">table_rows</span>
+            </button>
+          </div>
+          <button id="btn-toggle-detail" class="btn-outline btn-toggle-detail" title="Mostrar u ocultar el panel de detalle" aria-label="Mostrar u ocultar el panel de detalle" aria-pressed="true">
+            <span class="material-symbols-outlined">right_panel_close</span>
+            <span class="btn-toggle-detail__label">Detalle</span>
+          </button>
           <button id="btn-exportar" class="btn-outline hidden" title="Exportar resultados a formato CSV">
             <span class="material-symbols-outlined">table_view</span>
             <span>CSV</span>
@@ -397,12 +382,14 @@
         </div>
       </div>
 
-      <p id="estado-texto" class="status-text"></p>
+      <p id="estado-texto" class="status-text" role="status" aria-live="polite"></p>
 
-      <div class="results-grid">
+      <div class="results-grid" id="results-grid">
         <div class="results-list-col">
           <div id="results-list" class="results-list"></div>
         </div>
+
+        <div id="detail-resizer" class="detail-resizer" role="separator" aria-orientation="vertical" aria-label="Ajustar ancho del panel de detalle" aria-valuemin="320" aria-valuemax="640" aria-valuenow="430" tabindex="0" title="Arrastra para ajustar el panel"></div>
 
         <!-- Detail Panel (Desktop) -->
         <aside id="detail-panel" class="detail-panel" aria-label="Detalle de persona">
@@ -447,6 +434,6 @@
     </div>
   </footer>
 
-  <script src="app.js?v=2.3"></script>
+  <script src="app.js?v=2.19"></script>
 </body>
 </html>

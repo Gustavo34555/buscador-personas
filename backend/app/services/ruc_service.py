@@ -19,7 +19,7 @@ class RucService:
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=10.0)
+            self._client = httpx.AsyncClient(timeout=7.0)
         return self._client
 
     async def close(self) -> None:
@@ -27,7 +27,7 @@ class RucService:
             await self._client.aclose()
             self._client = None
 
-    async def consultar(self, ruc: str, max_retries: int = 2) -> dict:
+    async def consultar(self, ruc: str, max_retries: int = 1) -> dict:
         if not self.api_key:
             raise HTTPException(
                 status_code=500,
@@ -52,7 +52,10 @@ class RucService:
                         api_msg = err_body.get("mensaje") or err_body.get("message")
                     except Exception:
                         api_msg = None
-                    detail = api_msg or "RUC_API_KEY inválida o no configurada. Regístrate gratis en https://peruapi.com/registro"
+                    detail = (
+                        api_msg
+                        or "RUC_API_KEY inválida o no configurada. Regístrate gratis en https://peruapi.com/registro"
+                    )
                     raise HTTPException(
                         status_code=500,
                         detail=detail,
@@ -69,7 +72,7 @@ class RucService:
                         attempt + 1,
                         max_retries,
                     )
-                    await asyncio.sleep(0.3 * (2 ** attempt))
+                    await asyncio.sleep(0.3 * (2**attempt))
                     continue
                 if res.status_code != 200:
                     raise HTTPException(
@@ -86,7 +89,7 @@ class RucService:
                         max_retries,
                         e,
                     )
-                    await asyncio.sleep(0.3 * (2 ** attempt))
+                    await asyncio.sleep(0.3 * (2**attempt))
                     continue
 
         raise HTTPException(

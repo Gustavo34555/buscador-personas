@@ -3,10 +3,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.schemas import ActualizarUsuarioRequest, CrearUsuarioRequest, UsuarioResponse
-from app.security import require_admin
+from app.security import require_admin, verify_csrf_header
 from app.services import auth_service
 
-router = APIRouter(prefix="/api/admin", tags=["administración"])
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["administración"],
+    dependencies=[Depends(verify_csrf_header)],
+)
 
 
 def _serializar(usuario: dict) -> dict:

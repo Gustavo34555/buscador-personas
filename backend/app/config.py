@@ -61,9 +61,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL:
     raise RuntimeError("No se encontró DATABASE_URL en el archivo .env")
 if IS_PRODUCTION and "CAMBIAR_PASSWORD" in DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL contiene la contraseña de ejemplo; define una contraseña real"
-    )
+    raise RuntimeError("DATABASE_URL contiene la contraseña de ejemplo; define una contraseña real")
 
 # ── Secretos ────────────────────────────────────────────────────────────
 _INSECURE_SECRETS = {
@@ -151,14 +149,13 @@ NEGATIVE_CACHE_TTL = _int("NEGATIVE_CACHE_TTL", 30, minimum=1)
 RUC_API_KEY = os.getenv("RUC_API_KEY", "")
 RUC_API_BASE = os.getenv("RUC_API_BASE", "https://peruapi.com/api")
 
-# ── Familia / C4 ────────────────────────────────────────────────────────
+# ── Familia ─────────────────────────────────────────────────────────────
 FAMILIA_CANDIDATOS = _int("FAMILIA_CANDIDATOS", 300, minimum=10)
 FAMILIA_LIMITE_DEFAULT = _int("FAMILIA_LIMITE_DEFAULT", 50, minimum=1)
 FAMILIA_LIMITE_MAX = _int("FAMILIA_LIMITE_MAX", 200, minimum=1)
 FAMILIA_UMBRAL_ALTA = _int("FAMILIA_UMBRAL_ALTA", 60, minimum=0)
 FAMILIA_UMBRAL_MEDIA = _int("FAMILIA_UMBRAL_MEDIA", 40, minimum=0)
 BUSCAR_CANDIDATOS = _int("BUSCAR_CANDIDATOS", 300, minimum=50)
-ENABLE_C4 = _bool("ENABLE_C4", not IS_PRODUCTION)
 
 # ── Administración inicial ──────────────────────────────────────────────
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin").strip() or "admin"
@@ -170,6 +167,4 @@ _INSECURE_ADMIN_PASSWORDS = {
     "password",
 }
 if IS_PRODUCTION and ADMIN_PASSWORD.lower() in _INSECURE_ADMIN_PASSWORDS:
-    raise RuntimeError(
-        "ADMIN_PASSWORD usa un valor de ejemplo o demasiado común; cámbialo"
-    )
+    raise RuntimeError("ADMIN_PASSWORD usa un valor de ejemplo o demasiado común; cámbialo")
