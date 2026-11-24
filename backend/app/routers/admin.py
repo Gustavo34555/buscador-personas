@@ -1,5 +1,8 @@
 """Router de administración: CRUD de usuarios (solo admin)."""
 
+
+from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.schemas import ActualizarUsuarioRequest, CrearUsuarioRequest, UsuarioResponse

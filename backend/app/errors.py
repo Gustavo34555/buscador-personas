@@ -1,6 +1,10 @@
 """Errores de dominio compartidos entre servicios y routers."""
 
 
+
+from __future__ import annotations
+
+
 class QueryExecutionError(RuntimeError):
     """La base de datos falló o canceló una consulta.
 
