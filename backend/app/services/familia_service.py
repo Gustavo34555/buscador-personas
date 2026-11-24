@@ -662,7 +662,7 @@ def _buscar_candidatos_progenitor(conn, hijo: dict, tipo: str) -> list[dict]:
                 "fecha_max": fecha_max,
                 "limite": limite,
             },
-            timeout_ms=8000 if indice == 0 else 6000,
+            timeout_ms=10000 if indice == 0 else 8000,
             strict=False,
         )
         for fila in filas:
@@ -956,7 +956,7 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                     "limite": limite,
                     **params_rango,
                 },
-                timeout_ms=8000,
+                timeout_ms=10000,
                 strict=False,
             )
         )
@@ -990,7 +990,7 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                         "limite": limite,
                         **params_rango,
                     },
-                    timeout_ms=8000,
+                    timeout_ms=10000,
                     strict=False,
                 )
             )
@@ -1024,7 +1024,7 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                         "limite": limite,
                         **params_rango,
                     },
-                    timeout_ms=8000,
+                    timeout_ms=10000,
                     strict=False,
                 )
             )
@@ -1046,7 +1046,7 @@ def _buscar_candidatos_hermanos(conn, persona: dict, limite: int) -> list[dict]:
                     conn,
                     sql,
                     {"tsq": ancla, "dni": dni, "limite": limite, **params_rango},
-                    timeout_ms=8000,
+                    timeout_ms=10000,
                     strict=False,
                 )
             )
@@ -1283,7 +1283,7 @@ def _buscar_candidatos_hijos(conn, persona: dict, limite: int) -> list[dict]:
                 "limite": limite,
                 **params_rango,
             },
-            timeout_ms=8000,
+            timeout_ms=10000,
             strict=False,
         )
         for fila in filas:
